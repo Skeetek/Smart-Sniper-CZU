@@ -664,8 +664,9 @@ class SniperApp:
                         if rows:
                             for row in rows:
                                 row_text = row.text
-                                if any(b in row_text for b in blacklist):
-                                    self.log(f"🚫 Ignoruji termín (blacklist): {row_text[:40]}...") 
+                                blacklisted_item = next((b for b in blacklist if b in row_text), None)
+                                if blacklisted_item:
+                                    self.log(f"🚫 Ignoruji termín (blacklist '{blacklisted_item}'): {row_text[:40]}...") 
                                     continue
 
                                 try:
@@ -708,7 +709,7 @@ class SniperApp:
                     time.sleep(2) 
                     continue
 
-                wait_time = random.uniform(3, 6)
+                wait_time = random.uniform(3, 9)
                 time.sleep(wait_time)
                 cycle += 1
 
