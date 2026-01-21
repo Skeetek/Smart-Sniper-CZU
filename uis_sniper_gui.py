@@ -885,6 +885,9 @@ class SniperApp:
                             self.log("   🔙 Vracím se na seznam...")
                             driver.back()
                             
+                            # PO NÁVRATU MUSÍME REFRESHNOUT, ABY ZMIZELA IKONA PSA
+                            driver.refresh()
+                            
                             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
                             
                             found_dog_action = True
