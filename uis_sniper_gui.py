@@ -8,6 +8,8 @@ import json
 import os
 import sys
 import random
+import winsound
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -15,23 +17,21 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- KONFIGURACE ---
+# --- GLOBÁLNÍ KONFIGURACE ---
 UIS_LOGIN_URL = "https://is.czu.cz/auth/"
 OUTLOOK_URL = "https://outlook.office.com/mail/"
+MOODLE_LOGIN_URL = "https://moodle.czu.cz/login/index.php"
 COFFEE_URL = "https://buymeacoffee.com/colorvant"
 
 def get_config_path():
-    """Vrátí cestu ke konfiguračnímu souboru vedle spustitelného souboru."""
     if getattr(sys, 'frozen', False):
-        # Pokud běží jako .exe (PyInstaller)
         application_path = os.path.dirname(sys.executable)
     else:
-        # Pokud běží jako .py skript
         application_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(application_path, "uis_config.json")
+    return os.path.join(application_path, "smart_sniper_config.json")
 
 CONFIG_FILE = get_config_path()
 
@@ -46,27 +46,87 @@ COLOR_BTN_SCAN = "#005f9e"
 COLOR_BTN_DOG = "#A0522D"
 COLOR_ACCENT = "#FFD700"    
 COLOR_INFO = "#4FC3F7"
-COLOR_OUTLOOK = "#0078D4" 
 
-class SniperApp:
+# =============================================================================
+# POMOCNÁ TŘÍDA PRO CONFIG
+# =============================================================================
+class ConfigManager:
+    def load(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f: return json.load(f)
+            except: return {}
+        return {}
+    def save(self, data):
+        try:
+            # Načíst existující, aby se nepřepsala data druhé aplikace
+            existing = self.load()
+            existing.update(data)
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(existing, f, ensure_ascii=False, indent=4)
+        except: pass
+
+# =============================================================================
+# TŘÍDA: LAUNCHER (ROZCESTNÍK)
+# =============================================================================
+class LauncherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("UIS Sniper - ČZU")
+        self.root.title("Smart Sniper - ČZU")
+        self.root.geometry("400x450")
+        self.root.configure(bg=COLOR_BG)
+        
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TButton", padding=10, font=("Segoe UI", 12, "bold"), background="#444", foreground="white", borderwidth=0)
+        style.map("TButton", background=[('active', '#555')])
+
+        tk.Label(root, text="Vyber nástroj", font=("Segoe UI", 20, "bold"), bg=COLOR_BG, fg=COLOR_TEXT).pack(pady=(40, 20))
+
+        btn_uis = ttk.Button(root, text="UIS SNIPER (Zkoušky)", command=self.open_uis_sniper)
+        btn_uis.pack(fill=tk.X, padx=50, pady=10)
+
+        btn_tc = ttk.Button(root, text="TC SNIPER (Moodle Testy)", command=self.open_tc_sniper)
+        btn_tc.pack(fill=tk.X, padx=50, pady=10)
+        
+        tk.Label(root, text="v2.0 UIS + TC", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
+        
+        btn_coffee = tk.Button(root, text="☕ Podpořit autora", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
+        btn_coffee.pack(side=tk.BOTTOM, pady=10)
+
+    def open_uis_sniper(self):
+        new_window = tk.Toplevel(self.root)
+        UISSniperApp(new_window)
+
+    def open_tc_sniper(self):
+        new_window = tk.Toplevel(self.root)
+        TCSniperApp(new_window)
+
+# =============================================================================
+# TŘÍDA: UIS SNIPER (VZHLED ZE STARÉ VERZE, FUNKCE Z NOVÉ)
+# =============================================================================
+class UISSniperApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("UIS Sniper - ČZU Dark Edition")
         self.root.geometry("700x980")
         self.root.resizable(True, True)
         self.root.configure(bg=COLOR_BG)
-        
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         
         self.driver = None
         self.is_running = False
         self.thread = None
         
-        self.saved_data = self.load_config()
+        self.config = ConfigManager()
+        self.saved_data = self.config.load()
+        
         self.scanned_data = self.saved_data.get("scanned_data", {}) 
         self.all_subjects = self.saved_data.get("all_subjects", [])
         self.outlook_mode = tk.BooleanVar(value=False)
 
+        self.setup_ui()
+
+    def setup_ui(self):
+        # --- STYLY ---
         style = ttk.Style()
         style.theme_use('clam') 
         
@@ -80,8 +140,9 @@ class SniperApp:
         style.map("TCombobox", fieldbackground=[('readonly', COLOR_ENTRY_BG)], selectbackground=[('readonly', '#555')])
         style.configure("TCheckbutton", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI", 10))
 
-        main_canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
+        # --- HLAVNÍ SCROLLOVACÍ PLÁTNO ---
+        main_canvas = tk.Canvas(self.root, bg=COLOR_BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=main_canvas.yview)
         scrollable_frame = ttk.Frame(main_canvas)
 
         scrollable_frame.bind(
@@ -105,6 +166,7 @@ class SniperApp:
         content_frame = ttk.Frame(scrollable_frame, padding="15")
         content_frame.pack(fill=tk.BOTH, expand=True)
 
+        # 1. PŘIHLAŠOVACÍ ÚDAJE
         lbl_frame_login = ttk.LabelFrame(content_frame, text="1. Přihlašovací údaje (UIS)", padding="10")
         lbl_frame_login.pack(fill=tk.X, pady=5)
 
@@ -117,6 +179,7 @@ class SniperApp:
         self.entry_pass = tk.Entry(lbl_frame_login, width=25, show="*", bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
         self.entry_pass.grid(row=0, column=3, sticky=tk.W, padx=5)
 
+        # 2. AUTOMATICKÉ NAČTENÍ
         lbl_frame_scan = ttk.LabelFrame(content_frame, text="2. Automatické načtení (Doporučeno)", padding="10")
         lbl_frame_scan.pack(fill=tk.X, pady=5)
         
@@ -126,6 +189,7 @@ class SniperApp:
         self.btn_scan = tk.Button(lbl_frame_scan, text="🔄 Načíst data z UIS", bg=COLOR_BTN_SCAN, fg="white", font=("Segoe UI", 10, "bold"), command=self.start_scan)
         self.btn_scan.pack(fill=tk.X)
 
+        # 3. VÝBĚR PŘEDMĚTU
         lbl_frame_creator = ttk.LabelFrame(content_frame, text="3. Vybrat předmět ke sledování", padding="10")
         lbl_frame_creator.pack(fill=tk.X, pady=5)
 
@@ -158,9 +222,10 @@ class SniperApp:
         self.entry_date.grid(row=4, column=1, sticky=tk.W, padx=5, pady=2)
         ttk.Label(lbl_frame_creator, text="(např. 22.01 nebo prázdné)", font=("Segoe UI", 8), foreground="#888").grid(row=4, column=2, sticky=tk.W)
 
-        btn_add = tk.Button(lbl_frame_creator, text="⬇️ PŘIDAT DO SEZNAMU", bg="#444", fg="white", font=("Segoe UI", 9, "bold"), command=self.add_target_to_list)
+        btn_add = tk.Button(lbl_frame_creator, text="⬇️ PŘIDAT DO SEZNAMU", bg="#444", fg="white", font=("Segoe UI", 9, "bold"), command=self.add_target)
         btn_add.grid(row=5, column=0, columnspan=3, pady=10, sticky=tk.EW)
 
+        # 4. SEZNAM TERMÍNŮ
         lbl_frame_targets = ttk.LabelFrame(content_frame, text="4. Seznam hlídaných termínů (Priorita shora dolů)", padding="10")
         lbl_frame_targets.pack(fill=tk.BOTH, expand=True, pady=5)
         
@@ -190,6 +255,7 @@ class SniperApp:
                 if line.strip() and not line.startswith("#"):
                     self.list_targets.insert(tk.END, line.strip())
 
+        # 5. BLACKLIST
         lbl_frame_blacklist = ttk.LabelFrame(content_frame, text="5. Ignorované termíny (Blacklist)", padding="10")
         lbl_frame_blacklist.pack(fill=tk.X, pady=5)
         
@@ -198,6 +264,7 @@ class SniperApp:
         self.entry_blacklist.pack(fill=tk.X, pady=2)
         self.entry_blacklist.insert(0, self.saved_data.get("blacklist", ""))
 
+        # 6. OVLÁDÁNÍ
         lbl_frame_control = ttk.LabelFrame(content_frame, text="6. Ovládání", padding="10")
         lbl_frame_control.pack(fill=tk.X, pady=5)
 
@@ -211,82 +278,51 @@ class SniperApp:
         self.btn_start = tk.Button(btn_frame, text="🚀 SPUSTIT SNIPER", bg=COLOR_BTN_START, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_sniper)
         self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
-        # Tlačítko pro Hlídacího psa
         self.btn_dog = tk.Button(btn_frame, text="🐶 NASTAVIT HLÍDACÍHO PSA", bg=COLOR_BTN_DOG, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_dog_mode)
         self.btn_dog.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
         self.btn_stop = tk.Button(btn_frame, text="🛑 ZASTAVIT", bg=COLOR_BTN_STOP, fg="white", font=("Segoe UI", 12, "bold"), command=self.stop_sniper, state=tk.DISABLED)
         self.btn_stop.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
+        # LOG
         lbl_frame_log = ttk.LabelFrame(content_frame, text="Log (Průběh)", padding="10")
         lbl_frame_log.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.txt_log = scrolledtext.ScrolledText(lbl_frame_log, height=8, state='disabled', bg="#000000", fg="#00ff00", font=("Consolas", 9))
+        self.txt_log = scrolledtext.ScrolledText(lbl_frame_log, height=8, state='normal', bg="#000000", fg="#00ff00", font=("Consolas", 9))
         self.txt_log.pack(fill=tk.BOTH, expand=True)
 
-        btn_coffee = tk.Button(content_frame, text="☕ Líbi se ti aplikace? Podpoř autora na Buy Me a Coffee", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=self.open_coffee)
+        btn_coffee = tk.Button(content_frame, text="☕ Líbi se ti aplikace? Podpoř autora na Buy Me a Coffee", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
         btn_coffee.pack(fill=tk.X, pady=10)
 
-    # --- PERSISTENCE ---
-    def load_config(self):
-        if os.path.exists(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                return {}
-        return {}
+    # --- UI METODY ---
+    def log(self, msg):
+        try:
+            self.txt_log.insert(tk.END, f"{msg}\n")
+            self.txt_log.see(tk.END)
+        except: pass
 
     def save_config(self):
-        items = self.list_targets.get(0, tk.END)
-        targets_str = "\n".join(items)
-        blacklist_str = self.entry_blacklist.get().strip()
+        targets = "\n".join(self.list_targets.get(0, tk.END))
         study_info_text = self.lbl_study_info.cget("text")
-        
         data = {
-            "username": self.entry_user.get().strip(),
-            "targets": targets_str,
-            "blacklist": blacklist_str,
+            "username": self.entry_user.get(),
+            "targets": targets,
+            "blacklist": self.entry_blacklist.get(),
             "scanned_data": self.scanned_data,
             "all_subjects": self.all_subjects,
             "study_info": study_info_text
         }
-        try:
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
-        except Exception:
-            pass
-
-    def on_close(self):
-        self.save_config()
-        if self.driver:
-            try:
-                self.driver.quit()
-            except:
-                pass
-        self.root.destroy()
-
-    def log(self, message):
-        def _log():
-            self.txt_log.config(state='normal')
-            self.txt_log.insert(tk.END, f"{message}\n")
-            self.txt_log.see(tk.END)
-            self.txt_log.config(state='disabled')
-        self.root.after(0, _log)
-
-    def open_coffee(self):
-        webbrowser.open(COFFEE_URL)
+        self.config.save(data)
 
     def on_teacher_selected(self, event):
-        selected_teacher = self.cb_teacher.get()
-        if selected_teacher in self.scanned_data:
-            subjects = self.scanned_data[selected_teacher]
-            self.cb_subject['values'] = sorted(list(subjects))
-            if subjects: self.cb_subject.current(0)
+        t = self.cb_teacher.get()
+        if t in self.scanned_data:
+            self.cb_subject['values'] = sorted(list(self.scanned_data[t]))
+            if self.scanned_data[t]: self.cb_subject.current(0)
         else:
             self.cb_subject['values'] = sorted(self.all_subjects)
 
-    def add_target_to_list(self):
+    def add_target(self):
         subj = self.cb_subject.get().strip()
         teach = self.cb_teacher.get().strip()
         date = self.entry_date.get().strip()
@@ -304,53 +340,40 @@ class SniperApp:
         self.save_config()
 
     def move_up(self):
-        try:
-            idxs = self.list_targets.curselection()
-            if not idxs: return
-            idx = idxs[0]
-            if idx > 0:
-                text = self.list_targets.get(idx)
-                self.list_targets.delete(idx)
-                self.list_targets.insert(idx-1, text)
-                self.list_targets.selection_set(idx-1)
-                self.save_config()
-        except: pass
-
+        idx = self.list_targets.curselection()
+        if not idx or idx[0] == 0: return
+        text = self.list_targets.get(idx[0])
+        self.list_targets.delete(idx[0])
+        self.list_targets.insert(idx[0]-1, text)
+        self.list_targets.selection_set(idx[0]-1)
+        self.save_config()
+    
     def move_down(self):
-        try:
-            idxs = self.list_targets.curselection()
-            if not idxs: return
-            idx = idxs[0]
-            if idx < self.list_targets.size() - 1:
-                text = self.list_targets.get(idx)
-                self.list_targets.delete(idx)
-                self.list_targets.insert(idx+1, text)
-                self.list_targets.selection_set(idx+1)
-                self.save_config()
-        except: pass
+        idx = self.list_targets.curselection()
+        if not idx or idx[0] == self.list_targets.size()-1: return
+        text = self.list_targets.get(idx[0])
+        self.list_targets.delete(idx[0])
+        self.list_targets.insert(idx[0]+1, text)
+        self.list_targets.selection_set(idx[0]+1)
+        self.save_config()
 
     def delete_item(self):
-        try:
-            idxs = self.list_targets.curselection()
-            if not idxs: return
-            self.list_targets.delete(idxs[0])
+        idx = self.list_targets.curselection()
+        if idx: 
+            self.list_targets.delete(idx[0])
             self.save_config()
-        except: pass
 
     def get_targets(self):
-        raw_items = self.list_targets.get(0, tk.END)
+        raw = self.list_targets.get(0, tk.END)
         targets = []
-        for line in raw_items:
+        for line in raw:
             line = line.strip()
             if not line: continue
             parts = line.split(";")
             if len(parts) >= 1:
-                subj = parts[0].strip()
-                date = parts[1].strip() if len(parts) > 1 else ""
-                filtr = parts[2].strip() if len(parts) > 2 else ""
-                targets.append({"subject": subj, "date": date, "filter": filtr, "original_line": line})
+                targets.append({"subject": parts[0].strip(), "date": parts[1].strip() if len(parts)>1 else "", "filter": parts[2].strip() if len(parts)>2 else "", "original_line": line})
         return targets
-
+    
     def remove_target_from_gui(self, original_line):
         def _remove():
             try:
@@ -367,175 +390,22 @@ class SniperApp:
             self.lbl_study_info.config(text=info_text)
         self.root.after(0, _update)
 
-    def start_scan(self):
-        username = self.entry_user.get().strip()
-        password = self.entry_pass.get().strip()
-        
-        if not username or not password:
-            messagebox.showerror("Chyba", "Pro načtení dat musíš vyplnit přihlašovací údaje!")
-            return
-            
-        self.btn_scan.config(state=tk.DISABLED, text="⏳ Načítám data...")
-        self.log("--- SPUŠTĚNÍ SCANU DAT ---")
-        threading.Thread(target=self.scan_process, args=(username, password)).start()
-
-    def scan_process(self, username, password):
-        driver = self.init_driver()
-        if not driver:
-            self.reset_scan_ui()
-            return
-
-        try:
-            if not self.login_process(driver, username, password):
-                driver.quit()
-                self.reset_scan_ui()
-                return
-
-            self.navigate_to_exams(driver)
-            self.detect_study_info(driver)
-            
-            self.log("🕵️ Analyzuji termíny...")
-            
-            try:
-                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
-                
-                rows = driver.find_elements(By.XPATH, "//table[@id='table_2']//tbody/tr")
-                data_map = {}
-                all_subjs = set()
-                
-                for row in rows:
-                    cells = row.find_elements(By.TAG_NAME, "td")
-                    if len(cells) > 9: 
-                        subj_text = cells[4].text.strip()
-                        teach_text = cells[9].text.strip()
-                        if subj_text:
-                            all_subjs.add(subj_text)
-                            if teach_text:
-                                if teach_text not in data_map:
-                                    data_map[teach_text] = set()
-                                data_map[teach_text].add(subj_text)
-
-                self.scanned_data = {k: sorted(list(v)) for k, v in data_map.items()}
-                self.all_subjects = sorted(list(all_subjs))
-                
-                self.log(f"✅ Načteno: {len(data_map)} učitelů, {len(all_subjs)} předmětů.")
-                
-                self.root.after(0, self.save_config)
-                self.root.after(0, self.update_comboboxes)
-                
-            except Exception as e:
-                self.log(f"⚠️ Chyba při čtení tabulky: {e}")
-
-        except Exception as e:
-            self.log(f"🔴 Chyba scanu: {e}")
-        finally:
-            if driver: driver.quit()
-            self.root.after(0, self.reset_scan_ui)
-
-    def update_comboboxes(self):
-        teachers = sorted(list(self.scanned_data.keys()))
-        self.cb_teacher['values'] = teachers
-        self.cb_subject['values'] = sorted(self.all_subjects)
-        messagebox.showinfo("Hotovo", "Data z UIS byla načtena a uložena!")
-
-    def reset_scan_ui(self):
-        self.btn_scan.config(state=tk.NORMAL, text="🔄 Načíst data z UIS")
-
-    def start_sniper(self):
-        if self.is_running: return
-        
-        username = self.entry_user.get().strip()
-        password = self.entry_pass.get().strip()
-        targets = self.get_targets()
-
-        if not username or not password:
-            messagebox.showerror("Chyba", "Vyplň přihlašovací údaje!")
-            return
-        
-        if not targets:
-            messagebox.showerror("Chyba", "Seznam předmětů je prázdný!")
-            return
-
-        self.save_config()
-        self.is_running = True
-        self.btn_start.config(state=tk.DISABLED)
-        self.btn_dog.config(state=tk.DISABLED)
-        self.btn_stop.config(state=tk.NORMAL)
-        self.btn_scan.config(state=tk.DISABLED)
-        self.chk_outlook.config(state=tk.DISABLED) 
-        
-        use_outlook = self.outlook_mode.get()
-        if use_outlook:
-             self.log("--- SPUŠTĚNÍ V OUTLOOK REŽIMU 📧 ---")
-             self.log("ℹ️ Přihlaste se v otevřeném okně do Outlooku.")
-        else:
-             self.log("--- SPUŠTĚNÍ V UIS REŽIMU 🚀 ---")
-             self.log("ℹ️ Program pracuje. Nezasahuj do okna prohlížeče.")
-        
-        self.thread = threading.Thread(target=self.run_process, args=(username, password, targets, use_outlook))
-        self.thread.daemon = True
-        self.thread.start()
-
-    def start_dog_mode(self):
-        """Spustí režim pro nastavení hlídacího psa."""
-        if self.is_running: return
-        
-        username = self.entry_user.get().strip()
-        password = self.entry_pass.get().strip()
-        targets = self.get_targets()
-
-        if not username or not password:
-            messagebox.showerror("Chyba", "Vyplň přihlašovací údaje!")
-            return
-        
-        if not targets:
-            messagebox.showerror("Chyba", "Seznam předmětů je prázdný!")
-            return
-
-        self.save_config()
-        self.is_running = True
-        self.btn_start.config(state=tk.DISABLED)
-        self.btn_dog.config(state=tk.DISABLED)
-        self.btn_stop.config(state=tk.NORMAL)
-        self.btn_scan.config(state=tk.DISABLED)
-        self.chk_outlook.config(state=tk.DISABLED) 
-        
-        self.log("--- SPUŠTĚNÍ REŽIMU HLÍDACÍ PES 🐶 ---")
-        self.log("ℹ️ Program projde termíny a nastaví psa.")
-        
-        self.thread = threading.Thread(target=self.run_dog_process, args=(username, password, targets))
-        self.thread.daemon = True
-        self.thread.start()
-
-    def stop_sniper(self):
-        if not self.is_running: return
-        self.is_running = False
-        self.log("--- POŽADAVEK NA ZASTAVENÍ... ---")
-
-    def reset_ui(self):
-        self.is_running = False
-        self.btn_start.config(state=tk.NORMAL)
-        self.btn_dog.config(state=tk.NORMAL)
-        self.btn_stop.config(state=tk.DISABLED)
-        self.btn_scan.config(state=tk.NORMAL)
-        self.chk_outlook.config(state=tk.NORMAL)
-        self.log("--- ZASTAVENO ---")
-
+    # --- SELENIUM & LOGIC ---
     def init_driver(self):
-        chrome_options = Options()
-        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
+        options = Options()
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         try:
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
             driver.maximize_window()
             return driver
         except Exception as e:
             self.log(f"CHYBA DRIVERU: {e}")
             return None
-
+    
     def detect_study_info(self, driver):
+        """Funkce ze staré verze pro detekci fakulty a oboru."""
         try:
             try:
                 titulek_elem = WebDriverWait(driver, 5).until(
@@ -553,364 +423,399 @@ class SniperApp:
                 study_part = re.sub(r'\s+', ' ', study_part)
                 self.update_study_info_ui(study_part)
                 self.root.after(0, self.save_config)
-            else:
-                pass
         except Exception:
             pass
 
-    def navigate_to_exams(self, driver):
-        self.log("🧭 Naviguji na 'Přihlašování na zkoušky'...")
-        try:
-            if "moje_studium" not in driver.current_url:
-                self.log("   -> Hledám 'Portál studenta'...")
-                try:
-                    portal_link = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.PARTIAL_LINK_TEXT, "Portál studenta"))
-                    )
-                    driver.execute_script("arguments[0].click();", portal_link)
-                    time.sleep(2)
-                except:
-                    self.log("      ⚠️ Odkaz 'Portál studenta' nenalezen, zkusím 'Moje studium'...")
-                    moje_studium = driver.find_element(By.XPATH, "//span[contains(text(), 'Moje studium')]")
-                    driver.execute_script("arguments[0].click();", moje_studium)
-                    time.sleep(2)
-
-            self.detect_study_info(driver)
-
-            self.log("   -> Hledám ikonu 'Přihlašování na zkoušky'...")
-            try:
-                xpath_icon = "//span[@data-sysid='prihlasovani-zkousky']/.."
-                exam_link = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((By.XPATH, xpath_icon)))
-                driver.execute_script("arguments[0].click();", exam_link)
-                self.log("✅ Kliknuto na dlaždici zkoušek!")
-                time.sleep(2)
-                return True
-            except:
-                self.log("⚠️ Dlaždice nenalezena, zkouším text...")
-                text_link = driver.find_element(By.PARTIAL_LINK_TEXT, "Přihlašování na zkoušky")
-                driver.execute_script("arguments[0].click();", text_link)
-                time.sleep(2)
-                return True
-
-        except Exception as e:
-            self.log(f"⚠️ Navigace přes menu selhala ({e}).")
-            self.log("🚀 Zkouším přímý skok na URL...")
-            try:
-                DIRECT_URL = "https://is.czu.cz/auth/student/terminy_seznam.pl?lang=cz"
-                driver.get(DIRECT_URL)
-                time.sleep(2)
-                if "terminy_seznam" in driver.current_url:
-                    self.log("✅ Přímý skok úspěšný!")
-                    return True
-                return False
-            except Exception as e2:
-                self.log(f"🔴 Chyba při navigaci: {e2}")
-                return False
-
-    def login_process(self, driver, username, password):
-        self.log("🔵 Připojuji se k UIS...")
+    def login_process(self, driver, user, pwd):
+        self.log("🔵 Přihlašuji do UIS...")
         driver.get(UIS_LOGIN_URL)
         time.sleep(2)
-
-        try:
-            cz_buttons = driver.find_elements(By.XPATH, "//a[contains(@href, 'lang=cz')]")
-            if cz_buttons:
-                self.log("🇨🇿 Přepínám na češtinu...")
-                cz_buttons[0].click()
-                time.sleep(2)
+        try: driver.find_element(By.XPATH, "//a[contains(@href, 'lang=cz')]").click(); time.sleep(2)
         except: pass
-
-        try:
-            self.log("🔍 Vybírám 'Login a heslo'...")
-            login_btn = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//div[@data-sysid='email'] | //span[contains(text(), 'Login')]"))
-            )
-            login_btn.click()
-            time.sleep(1)
+        try: driver.find_element(By.XPATH, "//div[@data-sysid='email']").click()
         except: pass
-
         try:
-            self.log("⌨️ Vyplňuji údaje...")
-            user_input = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "credential_0")))
-            pass_input = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.ID, "credential_1")))
-            
-            try:
-                user_input.clear()
-                user_input.send_keys(username)
-            except:
-                driver.execute_script("arguments[0].value = arguments[1];", user_input, username)
-            
-            try:
-                pass_input.clear()
-                pass_input.send_keys(password)
-            except:
-                driver.execute_script("arguments[0].value = arguments[1];", pass_input, password)
-            
-            time.sleep(0.5)
-            
-            try:
-                submit = driver.find_element(By.ID, "login-btn")
-                driver.execute_script("arguments[0].click();", submit)
-            except:
-                pass_input.send_keys(Keys.RETURN)
-            
+            driver.find_element(By.ID, "credential_0").send_keys(user)
+            driver.find_element(By.ID, "credential_1").send_keys(pwd)
+            driver.find_element(By.ID, "credential_1").send_keys(Keys.RETURN)
             time.sleep(5)
-            
-            if len(driver.find_elements(By.ID, "credential_1")) > 0:
-                self.log("⚠️ CHYBA: Přihlášení asi selhalo.")
-                return False
-            else:
-                self.log("✅ Přihlášeno úspěšně.")
-                return True
+            if len(driver.find_elements(By.ID, "credential_1")) > 0: return False
+            return True
+        except: return False
 
-        except Exception as e:
-            self.log(f"🔴 Chyba při loginu: {e}")
-            return False
-
-    def check_outlook_for_email(self, driver, targets):
+    def navigate_to_exams(self, driver):
         try:
-            for t in targets:
-                subj = t["subject"]
-                
-                xpath = f"//div[@role='option' and contains(@aria-label, 'Unread') and (contains(@aria-label, 'Vypsání termínu') or contains(@aria-label, 'Uvolnění místa na termínu')) and contains(@aria-label, '{subj}')]"
-                
-                emails = driver.find_elements(By.XPATH, xpath)
-                
-                if emails:
-                    self.log(f"📧 Nalezen nový e-mail pro: {subj}!")
-                    return True
+            if "moje_studium" not in driver.current_url:
+                try: driver.find_element(By.PARTIAL_LINK_TEXT, "Portál studenta").click(); time.sleep(2)
+                except: driver.find_element(By.XPATH, "//span[contains(text(), 'Moje studium')]").click(); time.sleep(2)
             
-            return False
-            
-        except Exception:
-            return False
+            self.detect_study_info(driver) # Přidána detekce pro UI
 
-    def run_process(self, username, password, targets, use_outlook=False):
+            try: 
+                driver.find_element(By.XPATH, "//span[@data-sysid='prihlasovani-zkousky']/..").click()
+            except:
+                driver.get("https://is.czu.cz/auth/student/terminy_seznam.pl?lang=cz")
+            time.sleep(2)
+            return True
+        except: return False
+
+    def run_sniper_process(self, user, pwd, targets, use_outlook):
         driver = self.init_driver()
-        if not driver:
-            self.root.after(0, self.reset_ui)
-            return
-
+        if not driver: return
+        
         try:
-            if use_outlook:
-                self.log("🔵 Otevírám Outlook...")
-                driver.get(OUTLOOK_URL)
-                self.log("⏳ Čekám na ruční přihlášení do Outlooku...")
-                
-                try:
-                    WebDriverWait(driver, 300).until(EC.presence_of_element_located((By.XPATH, "//div[@role='tree']")))
-                    self.log("✅ Outlook načten! Sleduji příchozí poštu...")
-                except TimeoutException:
-                    self.log("❌ Nepodařilo se detekovat přihlášení do Outlooku včas.")
-                    return
-
-                while self.is_running:
-                    if self.check_outlook_for_email(driver, targets):
-                        self.log("🚀 DETEKOVÁN NOVÝ TERMÍN! Přepínám na UIS...")
-                        break 
-                    
-                    time.sleep(10)
-                    if self.is_running:
-                        pass
-                
-                if not self.is_running: return
-
-            if not self.login_process(driver, username, password):
-                driver.quit()
-                self.root.after(0, self.reset_ui)
-                return
-
+            if not self.login_process(driver, user, pwd):
+                driver.quit(); self.reset_ui(); return
             self.navigate_to_exams(driver)
+            uis_handle = driver.current_window_handle
             
-            blacklist_raw = self.entry_blacklist.get().strip()
-            blacklist = [b.strip() for b in blacklist_raw.split(";") if b.strip()]
+            # --- OUTLOOK SETUP (DUAL LOGIN) ---
+            active_checking_mode = not use_outlook 
+            
+            if use_outlook:
+                driver.switch_to.new_window('tab')
+                self.log("📧 Otevírám Outlook v novém tabu...")
+                driver.get(OUTLOOK_URL)
+                outlook_handle = driver.current_window_handle
+                self.log("⏳ Čekám na tvé přihlášení do Outlooku...")
+                try: WebDriverWait(driver, 300).until(EC.presence_of_element_located((By.XPATH, "//div[@role='tree']")))
+                except: driver.quit(); return
+                self.log("✅ Outlook připraven. Sleduji poštu...")
 
-            cycle = 1
+            blacklist_val = self.entry_blacklist.get()
+            blacklist = [b.strip() for b in blacklist_val.split(";") if b.strip()]
+            
             while self.is_running:
-                current_targets = self.get_targets()
-                if not current_targets:
-                    self.log("🎉 Všechny předměty úspěšně zapsány! Končím.")
-                    self.is_running = False
-                    break
-
-                self.log(f"🔄 Cyklus {cycle}: Kontrola {len(current_targets)} termínů...")
+                check_uis = True
                 
-                if self.is_running:
+                # REŽIM: ČEKÁM NA EMAIL
+                if use_outlook and not active_checking_mode:
+                    driver.switch_to.window(outlook_handle)
+                    found_mail = False
+                    for t in targets:
+                        subj = t["subject"]
+                        # Hledáme mail o vypsání NEBO uvolnění
+                        xpath = f"//div[@role='option' and contains(@aria-label, 'Unread') and (contains(@aria-label, 'Vypsání termínu') or contains(@aria-label, 'Uvolnění místa')) and contains(@aria-label, '{subj}')]"
+                        if driver.find_elements(By.XPATH, xpath):
+                            self.log(f"🚨 MAIL: {subj}! Přepínám do UIS!")
+                            found_mail = True
+                            break
+                    
+                    if found_mail:
+                        active_checking_mode = True # Jakmile najdeme mail, přepneme na aktivní režim a už v něm zůstaneme
+                        check_uis = True
+                    else:
+                        check_uis = False # Žádný mail -> čekáme
+                        time.sleep(5)
+                
+                # REŽIM: AKTIVNÍ SKENOVÁNÍ UIS
+                if check_uis:
+                    if use_outlook: driver.switch_to.window(uis_handle)
+                    
+                    # Refresh UIS
                     driver.refresh()
+                    try: WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "table_2")))
+                    except: pass
+                    
+                    # 1. Zjistit, kde jsem přihlášen (table_1) pro kontrolu priorit
+                    my_reg_subjects = []
                     try:
-                        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
-                    except TimeoutException:
-                        self.log("⚠️ Tabulka s termíny se nenačetla.")
-                        if len(driver.find_elements(By.ID, "credential_0")) > 0 or len(driver.find_elements(By.XPATH, "//div[@data-sysid='email']")) > 0:
-                            self.log("⚠️ Odhlášeno! Zkouším re-login...")
-                            self.login_process(driver, username, password)
-                            self.navigate_to_exams(driver)
-                        continue
+                        rows1 = driver.find_elements(By.XPATH, "//table[@id='table_1']//tbody/tr")
+                        for r in rows1: my_reg_subjects.append(r.text)
+                    except: pass
+                    
+                    # 2. Hledat v table_2 (volné)
+                    current_targets = self.get_targets() 
+                    target_action_done = False
 
-                target_found_in_this_cycle = False
-
-                for t in current_targets:
-                    if not self.is_running: break
-                    
-                    subj = t["subject"]
-                    date = t["date"]
-                    filtr = t["filter"]
-                    original_line = t["original_line"]
-                    
-                    xpath = f"//table[@id='table_2']//tr[contains(., '{subj}')]"
-                    if date: xpath += f"[contains(., '{date}')]"
-                    if filtr: xpath += f"[contains(., '{filtr}')]"
-                    
-                    try:
-                        rows = driver.find_elements(By.XPATH, xpath)
+                    for i, t in enumerate(current_targets):
+                        subj = t["subject"]
+                        date = t["date"]
+                        filtr = t["filter"]
+                        original_line = t["original_line"]
                         
-                        if rows:
-                            for row in rows:
-                                row_text = row.text
-                                blacklisted_item = next((b for b in blacklist if b in row_text), None)
-                                if blacklisted_item:
-                                    self.log(f"🚫 Ignoruji termín (blacklist '{blacklisted_item}'): {row_text[:40]}...") 
+                        xpath = f"//table[@id='table_2']//tr[contains(., '{subj}')]"
+                        if date: xpath += f"[contains(., '{date}')]"
+                        if filtr: xpath += f"[contains(., '{filtr}')]"
+                        
+                        rows = driver.find_elements(By.XPATH, xpath)
+                        for row in rows:
+                            if any(b in row.text for b in blacklist): continue
+                            
+                            # --- LOGIKA PRIORIT (SWAP) ---
+                            # Pokud už mám tento předmět zapsaný, ale našel jsem ho znovu tady (což znamená, že jsem našel
+                            # předmět, který je v mém seznamu 'targets' výše = vyšší priorita), tak se odhlásím z toho starého.
+                            already_have_this_subject = any(subj in s for s in my_reg_subjects)
+                            
+                            if already_have_this_subject:
+                                self.log(f"⚠️ Mám {subj} zapsaný, ale našel jsem lepší prioritu! Zkouším přehlásit...")
+                                try:
+                                    # Najdi řádek v table_1 pro tento předmět a klikni "Odhlásit ihned"
+                                    unreg_xpath = f"//table[@id='table_1']//tr[contains(., '{subj}')]//a[contains(@href, 'odhlasit_ihned=1')]"
+                                    driver.find_element(By.XPATH, unreg_xpath).click()
+                                    try: driver.switch_to.alert.accept()
+                                    except: pass
+                                    time.sleep(1)
+                                    driver.refresh() 
+                                    # Znovu najít řádek v table_2
+                                    rows = driver.find_elements(By.XPATH, xpath)
+                                    row = rows[0] 
+                                except Exception as e:
+                                    self.log(f"❌ Chyba při přehlašování: {e}")
                                     continue
 
-                                try:
-                                    double_arrow_xpath = ".//a[contains(@href, 'prihlasit_ihned=1')] | .//span[@data-sysid='small-arrow-right-double']/.."
-                                    register_btn = row.find_element(By.XPATH, double_arrow_xpath)
-                                    
-                                    info_msg = f"{subj} ({date if date else 'JAKÝKOLIV'} - {filtr})"
-                                    try:
-                                        found_date = re.search(r"\d{2}\.\d{2}\.", row_text).group(0)
-                                        info_msg += f" [Datum: {found_date}]"
-                                    except: pass
-
-                                    self.log(f"🔥 NAŠEL JSEM VOLNO: {info_msg}")
-                                    self.log("🖱️ KLIKÁM NA PŘIHLÁSIT!")
-                                    
-                                    driver.execute_script("arguments[0].click();", register_btn)
-                                    
-                                    try:
-                                        WebDriverWait(driver, 3).until(EC.alert_is_present())
-                                        driver.switch_to.alert.accept()
-                                        self.log("✅ Alert potvrzen.")
-                                    except: pass
-                                    
-                                    self.log(f"🎉 ZAPSÁNO: {info_msg}")
+                            # --- ZÁPIS ---
+                            try:
+                                btn = row.find_element(By.XPATH, ".//a[contains(@href, 'prihlasit_ihned=1')] | .//span[@data-sysid='small-arrow-right-double']/..")
+                                self.log(f"🔥 VOLNO: {subj}! Klikám...")
+                                driver.execute_script("arguments[0].click();", btn)
+                                try: driver.switch_to.alert.accept()
+                                except: pass
+                                self.log(f"🎉 ZAPSÁNO: {subj}")
+                                
+                                # Pokud jsme v Outlook módu, NEKONČÍME, vracíme se hlídat další maily/termíny
+                                # Pokud v klasickém módu, odstraníme ze seznamu
+                                if not use_outlook:
                                     self.remove_target_from_gui(original_line)
-                                    
-                                    target_found_in_this_cycle = True
-                                    break 
-                                except:
-                                    pass 
-                        
-                        if target_found_in_this_cycle:
-                            break 
+                                
+                                target_action_done = True
+                                break 
+                            except: pass
+                        if target_action_done: break # Jdeme na nový refresh
+                    
+                    if not use_outlook:
+                        time.sleep(random.uniform(3, 8))
 
-                    except StaleElementReferenceException:
-                        self.log("⚠️ Stránka se změnila. Přeskakuji cyklus.")
-                        break
-                
-                if target_found_in_this_cycle:
-                    time.sleep(2) 
-                    continue
-
-                wait_time = random.uniform(3, 9)
-                time.sleep(wait_time)
-                cycle += 1
-
-        except Exception as e:
-            self.log(f"🔴 KRITICKÁ CHYBA: {e}")
-        finally:
+        except Exception as e: self.log(f"CHYBA: {e}")
+        finally: 
             if driver: driver.quit()
             self.root.after(0, self.reset_ui)
 
-    def run_dog_process(self, username, password, targets):
+    def start_sniper(self):
+        self.is_running = True
+        self.btn_start.config(state="disabled")
+        self.btn_dog.config(state="disabled")
+        self.btn_stop.config(state="normal")
+        self.thread = threading.Thread(target=self.run_sniper_process, args=(self.entry_user.get(), self.entry_pass.get(), self.get_targets(), self.outlook_mode.get()))
+        self.thread.daemon = True
+        self.thread.start()
+    
+    def start_scan(self):
+        self.btn_scan.config(state="disabled", text="⏳ Načítám...")
+        self.thread = threading.Thread(target=self.scan_process, args=(self.entry_user.get(), self.entry_pass.get())).start()
+    
+    def scan_process(self, user, pwd):
         driver = self.init_driver()
         if not driver:
-            self.root.after(0, self.reset_ui)
+            self.root.after(0, lambda: self.btn_scan.config(state="normal", text="🔄 Načíst data z UIS"))
             return
-
         try:
-            if not self.login_process(driver, username, password):
-                driver.quit()
-                self.root.after(0, self.reset_ui)
-                return
-
+            self.login_process(driver, user, pwd)
             self.navigate_to_exams(driver)
-            
-            blacklist_raw = self.entry_blacklist.get().strip()
-            blacklist = [b.strip() for b in blacklist_raw.split(";") if b.strip()]
-
-            self.log("🐶 Zahajuji nastavování hlídacích psů...")
-            
             try:
                 WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
-            except:
-                self.log("⚠️ Tabulka termínů nenalezena.")
-                return
+                rows = driver.find_elements(By.XPATH, "//table[@id='table_2']//tbody/tr")
+                data_map = {}
+                all_s = set()
+                for row in rows:
+                    cells = row.find_elements(By.TAG_NAME, "td")
+                    if len(cells) > 9:
+                        s = cells[4].text.strip()
+                        t = cells[9].text.strip()
+                        if s: 
+                            all_s.add(s)
+                            if t:
+                                if t not in data_map: data_map[t] = set()
+                                data_map[t].add(s)
+                self.scanned_data = {k: sorted(list(v)) for k, v in data_map.items()}
+                self.all_subjects = sorted(list(all_s))
+                self.root.after(0, lambda: [self.save_config(), messagebox.showinfo("OK", "Data načtena"), self.update_comboboxes()])
+            except: pass
+        finally: 
+            driver.quit()
+            self.root.after(0, lambda: self.btn_scan.config(state="normal", text="🔄 Načíst data z UIS"))
 
-            current_targets = self.get_targets()
+    def update_comboboxes(self):
+        self.cb_teacher['values'] = sorted(list(self.scanned_data.keys()))
+        self.cb_subject['values'] = sorted(self.all_subjects)
+
+    def start_dog_mode(self):
+        self.is_running = True
+        self.btn_dog.config(state="disabled")
+        self.btn_start.config(state="disabled")
+        self.btn_stop.config(state="normal")
+        threading.Thread(target=self.run_dog, args=(self.entry_user.get(), self.entry_pass.get(), self.get_targets())).start()
+
+    def run_dog(self, u, p, targets):
+        driver = self.init_driver()
+        try:
+            self.login_process(driver, u, p)
+            self.navigate_to_exams(driver)
+            blacklist_val = self.entry_blacklist.get()
+            blacklist = [b.strip() for b in blacklist_val.split(";") if b.strip()]
             
-            for t in current_targets:
+            for t in targets:
                 if not self.is_running: break
-                
-                subj = t["subject"]
-                date = t["date"]
-                filtr = t["filter"]
-                
-                self.log(f"🔍 Hledám termín pro psa: {subj} ({date})")
-                
+                subj = t["subject"]; date = t["date"]; filtr = t["filter"]
+                self.log(f"Hledám psa pro: {subj}")
                 xpath = f"//table[@id='table_2']//tr[contains(., '{subj}')]"
                 if date: xpath += f"[contains(., '{date}')]"
                 if filtr: xpath += f"[contains(., '{filtr}')]"
                 
                 while self.is_running:
-                    found_dog_action = False
-                    
+                    found_action = False
                     rows = driver.find_elements(By.XPATH, xpath)
-                    
                     for row in rows:
-                        row_text = row.text
-                        
-                        if any(b in row_text for b in blacklist):
-                            continue
-
+                        if any(b in row.text for b in blacklist): continue
                         try:
-                            dog_xpath = ".//a[.//span[@data-sysid='terminy-pes'] or .//use[contains(@href, 'glyph1561')]]"
-                            dog_btn = row.find_element(By.XPATH, dog_xpath)
-                            
-                            self.log(f"   🐶 Našel jsem psa! Klikám...")
-                            driver.execute_script("arguments[0].click();", dog_btn)
-                            
+                            # Hledáme odkaz, který v sobě má psa
+                            dog = row.find_element(By.XPATH, ".//a[.//span[@data-sysid='terminy-pes'] or .//use[contains(@href, 'glyph1561')]]")
+                            self.log("🐶 Klikám na psa...")
+                            driver.execute_script("arguments[0].click();", dog)
                             time.sleep(2)
-                            
-                            self.log("   🔙 Vracím se na seznam...")
                             driver.back()
-                            
-                            # PO NÁVRATU MUSÍME REFRESHNOUT, ABY ZMIZELA IKONA PSA
                             driver.refresh()
-                            
-                            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
-                            
-                            found_dog_action = True
-                            self.log(f"   ✅ Pes nastaven pro: {subj}")
-                            break 
-                            
-                        except:
-                            pass
-                    
-                    if not found_dog_action:
-                         break
+                            try: WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
+                            except: pass
+                            found_action = True
+                            self.log("✅ Pes nastaven.")
+                            break
+                        except: pass
+                    if not found_action: break
+            self.log("Hotovo.")
+        finally: driver.quit(); self.root.after(0, self.reset_ui)
 
-            self.log("🏁 Hotovo. Hlídací psi nastaveni (kde to šlo).")
-            messagebox.showinfo("Hotovo", "Proces nastavování psů dokončen.")
-            self.is_running = False
+    def stop_sniper(self): self.is_running = False
+    
+    def reset_ui(self):
+        self.is_running = False
+        self.btn_start.config(state="normal")
+        self.btn_stop.config(state="disabled")
+        self.btn_dog.config(state="normal")
+        self.log("--- ZASTAVENO ---")
 
-        except Exception as e:
-            self.log(f"🔴 CHYBA PSA: {e}")
-        finally:
-            if driver: driver.quit()
-            self.root.after(0, self.reset_ui)
+# =============================================================================
+# TŘÍDA: TC SNIPER (Moodle)
+# =============================================================================
+class TCSniperApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("TC Sniper - Moodle Dark")
+        self.root.geometry("500x600")
+        self.root.configure(bg=COLOR_BG)
+        self.driver = None
+        self.is_running = False
+        self.config = ConfigManager()
+        self.saved_data = self.config.load()
+
+        # Styl pro Dark Mode TC Sniper
+        style = ttk.Style()
+        style.theme_use('clam') 
+        style.configure("TFrame", background=COLOR_BG)
+        style.configure("TLabelframe", background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure("TLabelframe.Label", background=COLOR_BG, foreground=COLOR_ACCENT)
+        style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI", 10))
+        style.configure("TButton", padding=6, font=("Segoe UI", 10), background="#444", foreground="white", borderwidth=0)
+        style.map("TButton", background=[('active', '#555')])
+        style.configure("TCheckbutton", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI", 10))
+        
+        lbl = ttk.LabelFrame(root, text="Nastavení", padding=10)
+        lbl.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        tk.Label(lbl, text="URL Testu:", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=0, column=0)
+        self.e_url = tk.Entry(lbl, width=40, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_url.grid(row=0, column=1)
+        self.e_url.insert(0, self.saved_data.get("tc_url", ""))
+
+        tk.Label(lbl, text="Dny (např. 15,16):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=1, column=0)
+        self.e_days = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_days.grid(row=1, column=1)
+        self.e_days.insert(0, self.saved_data.get("tc_days", "15"))
+        
+        tk.Label(lbl, text="Čas od (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=2, column=0)
+        self.e_t1 = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_t1.grid(row=2, column=1); self.e_t1.insert(0, "18:00")
+        
+        tk.Label(lbl, text="Čas do (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=3, column=0)
+        self.e_t2 = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_t2.grid(row=3, column=1); self.e_t2.insert(0, "19:00")
+
+        self.chk_book = tk.BooleanVar(value=True)
+        tk.Checkbutton(lbl, text="Zarezervovat", variable=self.chk_book, bg=COLOR_BG, fg=COLOR_TEXT, selectcolor=COLOR_BG, activebackground=COLOR_BG, activeforeground=COLOR_TEXT).grid(row=4, columnspan=2)
+
+        self.btn_run = tk.Button(root, text="START", bg=COLOR_BTN_START, fg="white", command=self.run)
+        self.btn_run.pack(fill=tk.X, padx=10)
+        self.btn_stop = tk.Button(root, text="STOP", bg=COLOR_BTN_STOP, fg="white", command=self.stop, state="disabled")
+        self.btn_stop.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.txt = scrolledtext.ScrolledText(root, height=8, bg="black", fg="#00ff00", font=("Consolas", 9))
+        self.txt.pack(fill=tk.BOTH, padx=10)
+
+    def log(self, m): self.txt.insert(tk.END, m+"\n"); self.txt.see(tk.END)
+    
+    def run(self):
+        self.is_running = True
+        self.btn_run.config(state="disabled")
+        self.btn_stop.config(state="normal")
+        # Save config
+        self.config.save({"tc_url": self.e_url.get(), "tc_days": self.e_days.get()})
+        threading.Thread(target=self.process).start()
+
+    def stop(self): self.is_running = False
+
+    def process(self):
+        user = self.saved_data.get("username", "") 
+        
+        url = self.e_url.get()
+        days = [d.strip() for d in self.e_days.get().split(",")]
+        t1 = datetime.strptime(self.e_t1.get(), "%H:%M").time()
+        t2 = datetime.strptime(self.e_t2.get(), "%H:%M").time()
+        
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=Options())
+        try:
+            self.log("Jdu na Moodle Login...")
+            driver.get(MOODLE_LOGIN_URL)
+            creds = self.config.load()
+            if "username" in creds:
+                driver.find_element(By.ID, "username").send_keys(creds["username"])
+                self.log("❗ Prosím přihlas se ručně, pokud to neproběhlo.")
+            
+            time.sleep(5) # Wait for login
+            
+            while self.is_running:
+                driver.get(url)
+                try:
+                    WebDriverWait(driver, 5).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "td.alert")) > 0)
+                    for td in driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success"):
+                        txt = td.text.strip()
+                        for d in days:
+                            if txt.startswith(str(d)):
+                                self.log(f"Datum {d} je volné!")
+                                td.click()
+                                time.sleep(1)
+                                # Check time
+                                found_time = False
+                                for a in driver.find_elements(By.TAG_NAME, "a"):
+                                    if " - " in a.text:
+                                        ct_str = a.text.split(" - ")[0].strip()
+                                        try:
+                                            ct = datetime.strptime(ct_str, "%H:%M").time()
+                                            if t1 <= ct <= t2:
+                                                self.log(f"Čas {ct_str} vyhovuje!")
+                                                winsound.Beep(1000, 500)
+                                                if self.chk_book.get():
+                                                    a.click()
+                                                    try: driver.switch_to.alert.accept()
+                                                    except: pass
+                                                    self.log("Hotovo!")
+                                                    self.is_running = False
+                                                found_time = True
+                                                break
+                                        except: pass
+                                if found_time: break
+                        if not self.is_running: break
+                except: pass
+                time.sleep(3)
+        except Exception as e: self.log(f"Err: {e}")
+        finally: driver.quit(); self.root.after(0, lambda: self.btn_run.config(state="normal"))
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = SniperApp(root)
+    app = LauncherApp(root)
     root.mainloop()
