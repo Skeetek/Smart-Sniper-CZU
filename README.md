@@ -1,4 +1,4 @@
-======================== UIS SNIPER - ČZU Outlook Edition (v1.1) ========================
+======================== Smart SNIPER - ČZU TC UPDATE (v2.0) ========================
 
 Ahoj! 👋
 Díky, že používáš UIS Sniper. Tento program vznikl proto, aby ti ušetřil nervy a čas při nekonečném čekání na uvolnění místa na zkoušce.
