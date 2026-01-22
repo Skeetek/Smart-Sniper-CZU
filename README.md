@@ -1,72 +1,78 @@
 ======================== Smart SNIPER - ČZU TC UPDATE (v2.0) ========================
 
 Ahoj! 👋
-Díky, že používáš UIS Sniper. Tento program vznikl proto, aby ti ušetřil nervy a čas při nekonečném čekání na uvolnění místa na zkoušce.
+Díky, že používáš Smart Sniper. Tento balíček kombinuje dva nástroje v jednom: UIS Sniper (na zkoušky) a TC Sniper (na testy v Moodle).
 
 🔴 CO TENTO PROGRAM UMÍ?
 
-Program má nyní tři hlavní režimy:
+Program se dělí na dvě hlavní části:
+
+🏛️ ČÁST 1: UIS SNIPER (Zkoušky)
+
+Má tři režimy lovu:
 
 🚀 AKTIVNÍ SNIPER (Výchozí):
-
 Neustále obnovuje stránku v UIS (v náhodných intervalech) a jakmile se místo uvolní, okamžitě tě přihlásí. Je to nejrychlejší metoda.
 
 📧 OUTLOOK WATCHER (Stealth mód):
-
 Program se přihlásí do tvého školního Outlooku a tiše čeká. Jakmile ti přijde e-mail "Vypsání termínu" nebo "Uvolnění místa", program se bleskově přepne do UIS a zapíše tě.
 Výhoda: Nezatěžuje UIS neustálým obnovováním.
 Nevýhoda: E-maily mají někdy zpoždění (5-15 min), takže u "horkých" termínů může být pozdě.
 
 🐶 NASTAVENÍ HLÍDACÍHO PSA:
-
 Program projde všechny předměty, které jsi zadal, a automaticky u nich v UIS nakliká "Hlídacího psa" (ikonu psa), abys dostal e-mail, až se místo uvolní. Ušetří ti to klikání.
+
+🎓 ČÁST 2: TC SNIPER (Moodle Testy)
+
+Slouží k lovení termínů v Moodle (typicky Testovací centrum PEF, kde se kliká na kalendář).
 
 🛠️ JAK TO POUŽÍVAT?
 
-Spusť program Smart Sniper-CZU.exe.
+Po spuštění Smart_Sniper_CZU.exe se otevře Launcher, kde si vybereš nástroj.
 
-Sekce 1: Vyplň svůj Login (x...) a Heslo do UIS.
-(Heslo se ukládá pouze u tebe v počítači do uis_config.json).
+1. UIS SNIPER (Postup)
 
-Sekce 2: Klikni na modré tlačítko "🔄 Načíst data z UIS".
+Login: Vyplň svůj Login (x...) a Heslo do UIS. (Ukládá se pouze lokálně).
 
-Otevře se prohlížeč, program si "osahá" tvé zapsané předměty a učitele. Díky tomu je pak nemusíš vypisovat ručně.
+Načtení: Klikni na modré tlačítko "🔄 Načíst data z UIS". Otevře se prohlížeč a načte tvé předměty.
 
-Sekce 3: Vyber si ze seznamu Předmět a Učitele.
+Výběr: Vyber Předmět a Učitele.
 
-Pokud chceš hlídat konkrétní datum, napiš ho (např. 21.01).
+Datum: Napiš např. "21.01" nebo nech prázdné pro jakýkoliv termín.
 
-Pokud datum necháš prázdné, program vezme JAKÝKOLIV volný termín u daného učitele.
+Klikni "⬇️ PŘIDAT DO SEZNAMU".
 
-Klikni na "⬇️ PŘIDAT DO SEZNAMU".
+Priority: Seřaď předměty šipkami ⬆️⬇️ (horní mají přednost).
 
-Sekce 4: Seřaď předměty podle priority (šipkami ⬆️ a ⬇️).
+Blacklist: Zadej, co ignorovat (např. "24.12.; 8:00").
 
-Program bere seznam odshora dolů. První volné místo, které najde, bere a končí.
+Start:
 
-Sekce 5 (Blacklist): Sem napiš data nebo časy, kdy NEMŮŽEŠ.
+Pro rychlý zápis: Klikni "🚀 SPUSTIT SNIPER".
 
-Např: "24.12.; 8:00; Novák" (odděluj středníkem).
+Pro Outlook režim: Zaškrtni "📧 Outlook Watcher" a pak spusť.
 
-Pokud program najde volný termín, ale bude obsahovat tento text, bude ho ignorovat.
+2. TC SNIPER (Postup)
 
-Sekce 6 (Ovládání): Vyber si akci:
+URL Testu: Jdi v prohlížeči na Moodle stránku s kalendářem testů a zkopíruj URL adresu sem.
 
-Pro SNIPER (rychlý zápis): Nech odškrtnutý Outlook a klikni na "🚀 SPUSTIT SNIPER".
+Dny: Napiš čísla dní, které chceš hlídat (např. "15, 16" pro 15. a 16. den v měsíci).
 
-Pro OUTLOOK (čekání na mail): Zaškrtni "📧 Aktivovat Outlook Watcher" a klikni na "🚀 SPUSTIT SNIPER".
+Čas: Zadej rozmezí, kdy můžeš (např. 18:00 až 20:00).
 
-Pro PSA: Klikni na hnědé tlačítko "🐶 NASTAVIT HLÍDACÍHO PSA".
+Akce: Zaškrtni "Zarezervovat" pro automatický zápis.
+
+Start: Klikni na "START".
+
+Pozor: V otevřeném okně se pravděpodobně budeš muset ručně přihlásit do Moodle.
 
 ⚠️ DŮLEŽITÁ UPOZORNĚNÍ
 
-* Program potřebuje nainstalovaný Google Chrome.
+Program potřebuje nainstalovaný Google Chrome.
 
-* Po spuštění se otevře okno prohlížeče. NEZAVÍREJ HO A NEKLIKAJ V NĚM, dokud program nepracuje.
+Po spuštění se otevře okno prohlížeče. NEZAVÍREJ HO, dokud program nepracuje.
 
-* V režimu Outlook Watcher se budeš muset v otevřeném okně ručně přihlásit do Outlooku (pokud to po tobě bude chtít).
-
-* Pokud chceš program ukončit, klikni na "🛑 ZASTAVIT" nebo zavři okno aplikace.
+V režimu Outlook/Moodle se budeš muset v okně ručně přihlásit (kvůli dvoufázovému ověření).
 
 ⚖️ ODPOVĚDNOST
 
