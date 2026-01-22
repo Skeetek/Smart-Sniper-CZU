@@ -15,7 +15,7 @@ Nevýhoda: E-maily mají někdy zpoždění (5-15 min), takže u "horkých" term
 Program projde všechny předměty, které jsi zadal, a automaticky u nich v UIS nakliká "Hlídacího psa" (ikonu psa), abys dostal e-mail, až se místo uvolní. Ušetří ti to klikání.
 
 🛠️ JAK TO POUŽÍVAT?  
-   1. Spusť program UIS Sniper-CZU.exe.
+   1. Spusť program Smart Sniper-CZU.exe.
    2. Sekce 1: Vyplň svůj Login (x...) a Heslo do UIS.
 (Heslo se ukládá pouze u tebe v počítači do uis_config.json).
    3. Sekce 2: Klikni na modré tlačítko "🔄 Načíst data z UIS".
