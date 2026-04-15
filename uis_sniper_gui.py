@@ -11,6 +11,15 @@ import random
 import winsound
 import traceback
 from datetime import datetime
+
+# --- NÁSILNÉ IMPORTY PRO PYINSTALLER (aby nevynechal soubory v .exe) ---
+import selenium.webdriver.chrome.webdriver
+import selenium.webdriver.common.service
+import selenium.webdriver.common.options
+import selenium.webdriver.chrome.options
+import selenium.webdriver.chrome.service
+# -----------------------------------------------------------------------
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -88,7 +97,7 @@ class LauncherApp:
         btn_tc = ttk.Button(root, text="TC SNIPER (Moodle Testy)", command=self.open_tc_sniper)
         btn_tc.pack(fill=tk.X, padx=50, pady=10)
         
-        tk.Label(root, text="v2.3 Stable Fix", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
+        tk.Label(root, text="v2.8 Ultimate Target Fix", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
         
         btn_coffee = tk.Button(root, text="☕ Podpořit autora", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
         btn_coffee.pack(side=tk.BOTTOM, pady=10)
@@ -401,7 +410,7 @@ class UISSniperApp:
             return driver
         except Exception as e:
             self.log(f"CHYBA DRIVERU: {e}")
-            messagebox.showerror("Chyba Driveru", f"Nepodařilo se spustit Chrome Driver.\n\nDetail: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Chyba Driveru", f"Nepodařilo se spustit Chrome Driver.\n\nDetail: {e}"))
             return None
     
     def safe_click(self, element):
@@ -833,22 +842,35 @@ class TCSniperApp:
         lbl = ttk.LabelFrame(root, text="Nastavení", padding=10)
         lbl.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        tk.Label(lbl, text="URL Testu:", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=0, column=0)
-        self.e_url = tk.Entry(lbl, width=40, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_url.grid(row=0, column=1)
+        tk.Label(lbl, text="URL Testu:", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=0, column=0, sticky=tk.W)
+        self.e_url = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_url.grid(row=0, column=1, pady=2)
         self.e_url.insert(0, self.saved_data.get("tc_url", ""))
 
-        tk.Label(lbl, text="Dny (např. 15,16):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=1, column=0)
-        self.e_days = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_days.grid(row=1, column=1)
+        tk.Label(lbl, text="Název testu (volitelně):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=1, column=0, sticky=tk.W)
+        self.e_tc_filter = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_tc_filter.grid(row=1, column=1, pady=2)
+        self.e_tc_filter.insert(0, self.saved_data.get("tc_filter", ""))
+        
+        tk.Label(lbl, text="(např. 'sekce 3')", bg=COLOR_BG, fg="gray", font=("Segoe UI", 8)).grid(row=2, column=1, sticky=tk.W)
+
+        tk.Label(lbl, text="Dny (např. 15,16):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=3, column=0, sticky=tk.W)
+        self.e_days = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_days.grid(row=3, column=1, pady=2)
         self.e_days.insert(0, self.saved_data.get("tc_days", "15"))
         
-        tk.Label(lbl, text="Čas od (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=2, column=0)
-        self.e_t1 = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_t1.grid(row=2, column=1); self.e_t1.insert(0, "18:00")
+        tk.Label(lbl, text="Čas od (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=4, column=0, sticky=tk.W)
+        self.e_t1 = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_t1.grid(row=4, column=1, pady=2)
+        self.e_t1.insert(0, self.saved_data.get("tc_t1", "12:00"))
         
-        tk.Label(lbl, text="Čas do (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=3, column=0)
-        self.e_t2 = tk.Entry(lbl, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white'); self.e_t2.grid(row=3, column=1); self.e_t2.insert(0, "19:00")
+        tk.Label(lbl, text="Čas do (HH:MM):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=5, column=0, sticky=tk.W)
+        self.e_t2 = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_t2.grid(row=5, column=1, pady=2)
+        self.e_t2.insert(0, self.saved_data.get("tc_t2", "19:00"))
 
         self.chk_book = tk.BooleanVar(value=True)
-        tk.Checkbutton(lbl, text="Zarezervovat", variable=self.chk_book, bg=COLOR_BG, fg=COLOR_TEXT, selectcolor=COLOR_BG, activebackground=COLOR_BG, activeforeground=COLOR_TEXT).grid(row=4, columnspan=2)
+        tk.Checkbutton(lbl, text="Zarezervovat", variable=self.chk_book, bg=COLOR_BG, fg=COLOR_TEXT, selectcolor=COLOR_BG, activebackground=COLOR_BG, activeforeground=COLOR_TEXT).grid(row=6, columnspan=2, pady=5)
 
         self.btn_run = tk.Button(root, text="START", bg=COLOR_BTN_START, fg="white", command=self.run)
         self.btn_run.pack(fill=tk.X, padx=10)
@@ -858,33 +880,122 @@ class TCSniperApp:
         self.txt = scrolledtext.ScrolledText(root, height=8, bg="black", fg="#00ff00", font=("Consolas", 9))
         self.txt.pack(fill=tk.BOTH, padx=10)
 
-    def log(self, m): self.txt.insert(tk.END, m+"\n"); self.txt.see(tk.END)
+    def log(self, m):
+        def _log():
+            try:
+                self.txt.insert(tk.END, m+"\n")
+                self.txt.see(tk.END)
+            except: pass
+        self.root.after(0, _log)
     
     def run(self):
         self.is_running = True
         self.btn_run.config(state="disabled")
         self.btn_stop.config(state="normal")
         # Save config
-        self.config.save({"tc_url": self.e_url.get(), "tc_days": self.e_days.get()})
+        self.config.save({
+            "tc_url": self.e_url.get(), 
+            "tc_filter": self.e_tc_filter.get(),
+            "tc_days": self.e_days.get(),
+            "tc_t1": self.e_t1.get(),
+            "tc_t2": self.e_t2.get()
+        })
         threading.Thread(target=self.process).start()
 
     def stop(self): self.is_running = False
 
-    def process(self):
-        user = self.saved_data.get("username", "") 
-        
-        url = self.e_url.get()
-        days = [d.strip() for d in self.e_days.get().split(",")]
-        t1 = datetime.strptime(self.e_t1.get(), "%H:%M").time()
-        t2 = datetime.strptime(self.e_t2.get(), "%H:%M").time()
-        
+    def _check_and_book_times(self, driver, time_links, t1, t2):
+        """Pomocná metoda pro kontrolu časů a rezervaci"""
+        for a in time_links:
+            if not self.is_running: break
+            try:
+                # Použijeme textContent místo .text, zabrání to problému s "neviditelným" textem
+                txt = a.get_attribute("textContent").strip()
+                if " - " in txt:
+                    ct_str = txt.split(" - ")[0].strip()
+                    ct = datetime.strptime(ct_str, "%H:%M").time()
+                    if t1 <= ct <= t2:
+                        self.log(f"✅ Čas {ct_str} vyhovuje!")
+                        winsound.Beep(1000, 500)
+                        if self.chk_book.get():
+                            self.log("🖱️ Odesílám požadavek na rezervaci...")
+                            
+                            # OPRAVA 1: Přepíšeme JS alerty (proti zásekům) a použijeme čistý klik
+                            driver.execute_script("""
+                                window.confirm = function() { return true; };
+                                window.alert = function() { return true; };
+                                if(typeof confirmTC !== 'undefined') { window.confirmTC = function() { return true; }; }
+                            """)
+                            time.sleep(0.2)
+                            
+                            # Klikneme přímo na odkaz
+                            driver.execute_script("arguments[0].click();", a)
+                            
+                            # OPRAVA 2: Pokud Moodle hodí potvrzovací obrazovku ("Pokračovat"), odklikneme ji
+                            time.sleep(2.5)
+                            try:
+                                confirm_btns = driver.find_elements(By.XPATH, "//input[@type='submit' or @type='button'] | //button")
+                                for btn in confirm_btns:
+                                    val = (btn.get_attribute("value") or btn.text or "").lower()
+                                    if any(word in val for word in ["ano", "yes", "pokračovat", "continue", "potvrdit", "confirm", "uložit", "save", "rezervovat"]):
+                                        self.log(f"⚠️ Moodle vyžaduje extra potvrzení ('{val}')...")
+                                        driver.execute_script("arguments[0].click();", btn)
+                                        time.sleep(1)
+                                        break
+                            except: pass
+                                
+                            self.log("🎉 Hotovo! Rezervováno.")
+                            self.is_running = False
+                        return True
+            except Exception as e: 
+                pass
+        return False
+
+    def init_driver(self):
         options = Options()
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--ignore-certificate-errors")
-        
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--remote-allow-origins=*") 
         try:
-            self.log("Jdu na Moodle Login...")
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            driver.maximize_window()
+            return driver
+        except Exception as e:
+            self.log(f"❌ CHYBA DRIVERU: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Chyba Driveru", f"Nepodařilo se spustit Chrome.\nDetail: {e}"))
+            return None
+
+    def process(self):
+        user = self.saved_data.get("username", "") 
+        
+        url = self.e_url.get().strip()
+        days_raw = self.e_days.get().split(",")
+        days = [d.strip() for d in days_raw if d.strip()]
+        
+        # Ochrana proti špatně zadanému času (aby to nespadlo potichu)
+        try:
+            t1 = datetime.strptime(self.e_t1.get().strip(), "%H:%M").time()
+            t2 = datetime.strptime(self.e_t2.get().strip(), "%H:%M").time()
+        except ValueError:
+            self.root.after(0, lambda: messagebox.showerror("Chyba", "Špatný formát času! Použij HH:MM (např. 08:00)"))
+            self.root.after(0, lambda: self.btn_run.config(state="normal"))
+            self.root.after(0, lambda: self.btn_stop.config(state="disabled"))
+            self.is_running = False
+            return
+        
+        self.log("⏳ Zapínám Chrome prohlížeč (může to chvíli trvat)...")
+        driver = self.init_driver()
+        
+        if not driver:
+            self.root.after(0, lambda: self.btn_run.config(state="normal"))
+            self.root.after(0, lambda: self.btn_stop.config(state="disabled"))
+            self.is_running = False
+            return
+
+        try:
+            self.log("🌐 Jdu na Moodle Login...")
             driver.get(MOODLE_LOGIN_URL)
             creds = self.config.load()
             if "username" in creds:
@@ -892,62 +1003,142 @@ class TCSniperApp:
                     driver.find_element(By.ID, "username").send_keys(creds["username"])
                 except: pass
             
-            self.log("❗ Přihlas se ručně (čekám 90s)...")
-            time.sleep(90) # Dlouhý čas na SSO/MFA
+            self.log("⏳ Čekám na tvé přihlášení...")
             
+            # Chytré čekání: už nečekáme fixně 90s, jakmile projde login, jde se hned dál
+            for _ in range(90):
+                if not self.is_running: return
+                # Odstraněn driver.get(url), aby tě to nerušilo při psaní hesla
+                curr_url = driver.current_url.lower()
+                if "login" not in curr_url and "oauth" not in curr_url and "saml" not in curr_url:
+                    break
+                time.sleep(2)
+                
+            self.log("🚀 Spouštím smyčku hledání...")
+            
+            loop_count = 0
             while self.is_running:
+                loop_count += 1
+                if loop_count % 15 == 0:
+                    self.log("🔄 Stále kontroluji termíny...")
+
                 try:
                     driver.get(url)
                     try:
-                        WebDriverWait(driver, 5).until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "td.alert")) > 0)
+                        WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, "td.alert")))
+                    except TimeoutException:
+                        pass
                         
-                        # Stabilnější iterace přes dny
-                        found_cells = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
-                        
-                        for td in found_cells:
-                            try:
-                                txt = td.text.strip()
-                                for d in days:
-                                    if txt.startswith(str(d)):
-                                        self.log(f"Datum {d} je volné!")
-                                        td.click()
-                                        time.sleep(1)
-                                        # Check time
-                                        found_time = False
-                                        time_links = driver.find_elements(By.TAG_NAME, "a")
-                                        
-                                        for a in time_links:
-                                            if " - " in a.text:
-                                                ct_str = a.text.split(" - ")[0].strip()
-                                                try:
-                                                    ct = datetime.strptime(ct_str, "%H:%M").time()
-                                                    if t1 <= ct <= t2:
-                                                        self.log(f"Čas {ct_str} vyhovuje!")
-                                                        winsound.Beep(1000, 500)
-                                                        if self.chk_book.get():
-                                                            a.click()
-                                                            try: driver.switch_to.alert.accept()
-                                                            except: pass
-                                                            self.log("Hotovo! Rezervováno.")
-                                                            self.is_running = False
-                                                        found_time = True
-                                                        break
-                                                except: pass
-                                        if found_time: break
-                            except StaleElementReferenceException:
-                                continue # Skip this cell and try next
-                                
-                            if not self.is_running: break
+                    if not self.is_running: break
+                    
+                    # 1. Zkusit rozbalit všechny kalendáře, které jsou zavřené (jistota, že jsou vidět)
+                    try:
+                        btns = driver.find_elements(By.XPATH, "//span[@data-toggle='collapse']")
+                        for btn in btns:
+                            if btn.get_attribute("aria-expanded") == "false":
+                                driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(0.3)
                     except: pass
+                    
+                    # 2. Zjistit, jestli máme hledat jen v konkrétním testu
+                    tc_filter = self.e_tc_filter.get().strip().lower()
+                    target_div_id = None
+                    
+                    if tc_filter:
+                        h3_elements = driver.find_elements(By.TAG_NAME, "h3")
+                        for h3 in h3_elements:
+                            if tc_filter in h3.text.lower():
+                                try:
+                                    href = h3.find_element(By.TAG_NAME, "a").get_attribute("href")
+                                    m = re.search(r"id=(\d+)", href)
+                                    if m:
+                                        target_div_id = f"test{m.group(1)}"
+                                        break
+                                except: pass
+                        
+                        if target_div_id:
+                            cells = driver.find_elements(By.CSS_SELECTOR, f"div#{target_div_id} td.alert.alert-success")
+                        else:
+                            if loop_count == 1: self.log(f"⚠️ Test s názvem '{tc_filter}' nenalezen, hledám ve všech...")
+                            cells = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+                    else:
+                        cells = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+                    
+                    time_links_found = []
+                    day_links_found = []
+                    
+                    # Rozdělíme nalezené volné buňky na konkrétní časy a na dny v kalendáři
+                    for cell in cells:
+                        try:
+                            links = cell.find_elements(By.TAG_NAME, "a")
+                            if not links: continue
+                            link = links[0]
+                            txt = link.get_attribute("textContent").strip()
+                            
+                            if "rezervovat" in txt.lower():
+                                time_links_found.append(link)
+                            else:
+                                day_links_found.append((cell, link, txt))
+                        except: pass
+                        
+                    if time_links_found:
+                        # Pokud program rovnou vidí časové bloky, prozkoumá je
+                        booked = self._check_and_book_times(driver, time_links_found, t1, t2)
+                        if booked: break
+                    elif day_links_found:
+                        # Pokud vidí dny v kalendáři, najde tvůj požadovaný den
+                        day_clicked = False
+                        for cell, link, txt in day_links_found:
+                            match = re.match(r"^(\d+)", txt) # Najde přesně číslo dne
+                            if match:
+                                day_num = match.group(1)
+                                if day_num in days:
+                                    self.log(f"📅 Nalezen volný den: {day_num}! Otevírám detail...")
+                                    
+                                    # Použijeme bezpečný JS klik pro rozkliknutí dne
+                                    driver.execute_script("arguments[0].click();", link)
+                                        
+                                    time.sleep(1.5)
+                                    day_clicked = True
+                                    break
+                            if day_clicked: break
+                            
+                        # Pokud se překlikl na den, ihned po načtení stránky načte časy a zkusí je vzít
+                        if day_clicked and self.is_running:
+                            try:
+                                WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, "td.alert.alert-success")))
+                            except: pass
+                            
+                            cells_new = driver.find_elements(By.CSS_SELECTOR, f"div#{target_div_id} td.alert.alert-success") if target_div_id else driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+                            
+                            # Fallback pro případ, že div už na detailní stránce neexistuje
+                            if not cells_new:
+                                cells_new = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+
+                            time_links_new = []
+                            for c in cells_new:
+                                try:
+                                    l = c.find_elements(By.TAG_NAME, "a")
+                                    if l and "rezervovat" in l[0].get_attribute("textContent").lower():
+                                        time_links_new.append(l[0])
+                                except: pass
+                            if time_links_new:
+                                self._check_and_book_times(driver, time_links_new, t1, t2)
+                                
                 except Exception as e:
                     self.log(f"Chyba cyklu: {e}")
-                    time.sleep(2)
                 
-                time.sleep(3)
-        except Exception as e: self.log(f"Err: {e}")
+                if self.is_running:
+                    time.sleep(2.5)
+        except Exception as e: 
+            self.log(f"Err: {e}")
         finally: 
-            driver.quit()
+            if driver:
+                try: driver.quit()
+                except: pass
             self.root.after(0, lambda: self.btn_run.config(state="normal"))
+            self.root.after(0, lambda: self.btn_stop.config(state="disabled"))
+            self.is_running = False
 
 if __name__ == "__main__":
     root = tk.Tk()
