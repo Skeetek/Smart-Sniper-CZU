@@ -81,7 +81,7 @@ class LauncherApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Smart Sniper - ČZU Tools")
-        self.root.geometry("400x450")
+        self.root.geometry("400x500")
         self.root.configure(bg=COLOR_BG)
         
         style = ttk.Style()
@@ -97,7 +97,10 @@ class LauncherApp:
         btn_tc = ttk.Button(root, text="TC SNIPER (Moodle Testy)", command=self.open_tc_sniper)
         btn_tc.pack(fill=tk.X, padx=50, pady=10)
         
-        tk.Label(root, text="v2.8 Ultimate Target Fix", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
+        btn_enrolled = ttk.Button(root, text="📋 Zapsané termíny (Přehled)", command=self.open_enrolled)
+        btn_enrolled.pack(fill=tk.X, padx=50, pady=10)
+        
+        tk.Label(root, text="v2.12 Dashboard Perfection", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
         
         btn_coffee = tk.Button(root, text="☕ Podpořit autora", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
         btn_coffee.pack(side=tk.BOTTOM, pady=10)
@@ -109,6 +112,10 @@ class LauncherApp:
     def open_tc_sniper(self):
         new_window = tk.Toplevel(self.root)
         TCSniperApp(new_window)
+
+    def open_enrolled(self):
+        new_window = tk.Toplevel(self.root)
+        EnrolledTermsApp(new_window)
 
 # =============================================================================
 # TŘÍDA: UIS SNIPER
@@ -683,7 +690,6 @@ class UISSniperApp:
                                 except StaleElementReferenceException:
                                     continue # Prvek zmizel, zkusit další nebo refresh
                                 except Exception as e:
-                                    # self.log(f"Chyba prvku: {e}")
                                     pass
 
                             if target_action_done: break 
@@ -854,7 +860,7 @@ class TCSniperApp:
         
         tk.Label(lbl, text="(např. 'sekce 3')", bg=COLOR_BG, fg="gray", font=("Segoe UI", 8)).grid(row=2, column=1, sticky=tk.W)
 
-        tk.Label(lbl, text="Dny (např. 15,16):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=3, column=0, sticky=tk.W)
+        tk.Label(lbl, text="Dny / Data (např. 15, 24.04.):", bg=COLOR_BG, fg=COLOR_TEXT).grid(row=3, column=0, sticky=tk.W)
         self.e_days = tk.Entry(lbl, width=38, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
         self.e_days.grid(row=3, column=1, pady=2)
         self.e_days.insert(0, self.saved_data.get("tc_days", "15"))
@@ -903,6 +909,28 @@ class TCSniperApp:
         threading.Thread(target=self.process).start()
 
     def stop(self): self.is_running = False
+
+    def _matches_date(self, user_input, href_date_str, cell_text):
+        """Porovná uživatelský vstup (např. '24' nebo '24.04.') s datem z odkazu"""
+        user_input = user_input.strip().lower()
+        if not href_date_str:
+            if "." in user_input:
+                return user_input in cell_text.lower()
+            return re.match(r"^0?" + re.escape(user_input) + r"\b", cell_text) is not None
+            
+        y, m, d = href_date_str.split("-")
+        y, m, d = int(y), int(m), int(d)
+        
+        valid_formats = [
+            str(d),
+            f"0{d}" if d < 10 else str(d),
+            f"{d}.{m}.",
+            f"{d:02d}.{m:02d}.",
+            f"{d}.{m}.{y}",
+            f"{d:02d}.{m:02d}.{y}",
+            f"{y}-{m:02d}-{d:02d}"
+        ]
+        return user_input in valid_formats
 
     def _check_and_book_times(self, driver, time_links, t1, t2):
         """Pomocná metoda pro kontrolu časů a rezervaci"""
@@ -1089,11 +1117,13 @@ class TCSniperApp:
                         # Pokud vidí dny v kalendáři, najde tvůj požadovaný den
                         day_clicked = False
                         for cell, link, txt in day_links_found:
-                            match = re.match(r"^(\d+)", txt) # Najde přesně číslo dne
-                            if match:
-                                day_num = match.group(1)
-                                if day_num in days:
-                                    self.log(f"📅 Nalezen volný den: {day_num}! Otevírám detail...")
+                            href = link.get_attribute("href") or ""
+                            date_match = re.search(r"day=(\d{4}-\d{2}-\d{2})", href)
+                            href_date = date_match.group(1) if date_match else None
+                            
+                            for d in days:
+                                if self._matches_date(d, href_date, txt):
+                                    self.log(f"📅 Nalezen volný den: {txt[:10]}...! Otevírám detail...")
                                     
                                     # Použijeme bezpečný JS klik pro rozkliknutí dne
                                     driver.execute_script("arguments[0].click();", link)
@@ -1139,6 +1169,226 @@ class TCSniperApp:
             self.root.after(0, lambda: self.btn_run.config(state="normal"))
             self.root.after(0, lambda: self.btn_stop.config(state="disabled"))
             self.is_running = False
+
+# =============================================================================
+# TŘÍDA: PŘEHLED ZAPSANÝCH TERMÍNŮ
+# =============================================================================
+class EnrolledTermsApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Přehled zapsaných termínů (UIS & Moodle TC)")
+        self.root.geometry("850x650")
+        self.root.configure(bg=COLOR_BG)
+        
+        self.config = ConfigManager()
+        self.saved_data = self.config.load()
+        
+        self.setup_ui()
+
+    def setup_ui(self):
+        style = ttk.Style()
+        style.theme_use('clam')
+        
+        top_frame = tk.Frame(self.root, bg=COLOR_BG)
+        top_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        tk.Label(top_frame, text="Login:", bg=COLOR_BG, fg=COLOR_TEXT).pack(side=tk.LEFT, padx=(0,5))
+        self.e_user = tk.Entry(top_frame, bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_user.insert(0, self.saved_data.get("username", ""))
+        self.e_user.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(top_frame, text="Heslo:", bg=COLOR_BG, fg=COLOR_TEXT).pack(side=tk.LEFT, padx=5)
+        self.e_pass = tk.Entry(top_frame, show="*", bg=COLOR_ENTRY_BG, fg=COLOR_TEXT, insertbackground='white')
+        self.e_pass.pack(side=tk.LEFT, padx=5)
+        
+        btn_load = tk.Button(top_frame, text="🔄 Načíst moje termíny", bg=COLOR_BTN_SCAN, fg="white", font=("Segoe UI", 10, "bold"), command=self.start_fetch)
+        btn_load.pack(side=tk.LEFT, padx=20)
+        
+        frame_split = tk.Frame(self.root, bg=COLOR_BG)
+        frame_split.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        frame_uis = ttk.LabelFrame(frame_split, text="🏛️ UIS Zkoušky")
+        frame_uis.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        self.txt_uis = scrolledtext.ScrolledText(frame_uis, bg="black", fg="#00ff00", font=("Consolas", 10))
+        self.txt_uis.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Načíst uložená data po zapnutí
+        saved_uis = self.saved_data.get("enrolled_uis", "")
+        if saved_uis:
+            self.txt_uis.insert(tk.END, saved_uis + "\n")
+        
+        frame_tc = ttk.LabelFrame(frame_split, text="🎓 Moodle TC Testy")
+        frame_tc.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        self.txt_tc = scrolledtext.ScrolledText(frame_tc, bg="black", fg="#00ff00", font=("Consolas", 10))
+        self.txt_tc.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # Načíst uložená data po zapnutí
+        saved_tc = self.saved_data.get("enrolled_tc", "")
+        if saved_tc:
+            self.txt_tc.insert(tk.END, saved_tc + "\n")
+
+    def log_uis(self, msg):
+        self.root.after(0, lambda: [self.txt_uis.insert(tk.END, msg + "\n"), self.txt_uis.see(tk.END)])
+        
+    def log_tc(self, msg):
+        self.root.after(0, lambda: [self.txt_tc.insert(tk.END, msg + "\n"), self.txt_tc.see(tk.END)])
+
+    def init_driver(self):
+        options = Options()
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--ignore-certificate-errors")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--remote-allow-origins=*") 
+        try:
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+            return driver
+        except Exception as e:
+            self.log_uis(f"❌ CHYBA DRIVERU: {e}")
+            return None
+
+    def start_fetch(self):
+        self.txt_uis.delete('1.0', tk.END)
+        self.txt_tc.delete('1.0', tk.END)
+        threading.Thread(target=self.fetch_process, daemon=True).start()
+
+    def save_results(self):
+        """Uloží aktuálně vypsané termíny do config souboru"""
+        data = {
+            "enrolled_uis": self.txt_uis.get('1.0', tk.END).strip(),
+            "enrolled_tc": self.txt_tc.get('1.0', tk.END).strip()
+        }
+        self.config.save(data)
+
+    def fetch_process(self):
+        username = self.e_user.get().strip()
+        password = self.e_pass.get().strip()
+        
+        if not username or not password:
+            self.log_uis("⚠️ Vyplň Login a Heslo nahoře!")
+            self.log_tc("⚠️ Vyplň Login a Heslo nahoře!")
+            return
+            
+        driver = self.init_driver()
+        if not driver: return
+        
+        try:
+            # --- UIS ---
+            self.log_uis("🔵 Přihlašuji do UIS...")
+            driver.get(UIS_LOGIN_URL)
+            time.sleep(2)
+            try: driver.find_element(By.XPATH, "//a[contains(@href, 'lang=cz')]").click(); time.sleep(2)
+            except: pass
+            
+            try: driver.find_element(By.XPATH, "//div[@data-sysid='email']").click(); time.sleep(1)
+            except: pass
+            
+            try:
+                user_input = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "credential_0")))
+                user_input.send_keys(username)
+                pass_input = driver.find_element(By.ID, "credential_1")
+                pass_input.send_keys(password)
+                pass_input.send_keys(Keys.RETURN)
+                time.sleep(4)
+            except Exception as e:
+                self.log_uis(f"❌ Nelze se přihlásit do UIS: {e}")
+                
+            self.log_uis("🧭 Hledám zapsané zkoušky...")
+            try:
+                driver.get("https://is.czu.cz/auth/student/terminy_seznam.pl?lang=cz")
+                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.ID, "table_1")))
+                rows = driver.find_elements(By.XPATH, "//table[@id='table_1']//tbody/tr")
+                if not rows:
+                    self.log_uis("ℹ️ Nemáš zapsané žádné zkoušky.")
+                else:
+                    self.log_uis(f"✅ Nalezeno termínů: {len(rows)}\n" + "-"*40)
+                    for r in rows:
+                        cells = r.find_elements(By.TAG_NAME, "td")
+                        if len(cells) >= 9:
+                            kod = cells[2].text.strip()
+                            nazev = cells[3].text.strip()
+                            datum_cas = cells[5].text.strip()
+                            mistnost = cells[6].text.strip()
+                            vypsal = cells[8].text.strip()
+                            
+                            # Odstraníme zbytečné odřádkování v datu a čase pro hezčí výpis
+                            datum_cas = " ".join(datum_cas.split())
+                            
+                            self.log_uis(f"📚 {kod} | {nazev}\n📅 {datum_cas}\n🏫 Místnost: {mistnost}\n👨‍🏫 Vyučující: {vypsal}\n" + "-"*40)
+                        elif len(cells) >= 6:
+                            kod = cells[2].text.strip()
+                            nazev = cells[3].text.strip()
+                            datum_cas = cells[5].text.strip()
+                            datum_cas = " ".join(datum_cas.split())
+                            self.log_uis(f"📚 {kod} | {nazev}\n📅 {datum_cas}\n" + "-"*40)
+                        else:
+                            self.log_uis(f"📌 {r.text}\n" + "-"*40)
+            except Exception as e:
+                self.log_uis("⚠️ Tabulka zapsaných zkoušek nenalezena.")
+
+            # --- MOODLE TC ---
+            tc_url = self.saved_data.get("tc_url", "")
+            if not tc_url:
+                self.log_tc("⚠️ Není nastavena URL pro Moodle test.")
+                self.log_tc("👉 Nejdříve spusť TC Sniper a zadej URL testu/kurzu.")
+            else:
+                self.log_tc("🌐 Přihlašuji do Moodle...")
+                driver.get(MOODLE_LOGIN_URL)
+                try:
+                    user_input = WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.ID, "username")))
+                    user_input.send_keys(username)
+                    self.log_tc("❗ Prosím, dokonči ručně přihlášení (MFA)... čekám.")
+                except:
+                    self.log_tc("❗ Nelze automaticky vyplnit jméno, přihlas se ručně... čekám.")
+                
+                for _ in range(60):
+                    curr = driver.current_url.lower()
+                    if "login" not in curr and "oauth" not in curr and "saml" not in curr:
+                        break
+                    time.sleep(1)
+                
+                self.log_tc("🚀 Načítám Moodle přehled testů...")
+                driver.get(tc_url)
+                
+                try:
+                    tables = WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.XPATH, "//h4[contains(text(), 'Vaše rezervované termíny')]/following-sibling::table[1]")))
+                    if tables:
+                        found_any = False
+                        for t in tables:
+                            rows = t.find_elements(By.TAG_NAME, "tr")
+                            if len(rows) > 1:
+                                found_any = True
+                                for r in rows[1:]:
+                                    cells = r.find_elements(By.TAG_NAME, "td")
+                                    if len(cells) >= 4:
+                                        datum = cells[1].text.strip()
+                                        cas = cells[2].text.strip()
+                                        prijdte = cells[3].text.strip()
+                                        stav = cells[4].text.strip() if len(cells) > 4 else ""
+                                        self.log_tc(f"📅 {datum} | 🕒 {cas}\n📌 Stav: {stav}\n👉 Přijďte v: {prijdte}\n" + "-"*35)
+                                    else:
+                                        self.log_tc(f"📌 {r.text}\n" + "-"*35)
+                        if not found_any:
+                            self.log_tc("ℹ️ Nemáš rezervované žádné termíny.")
+                    else:
+                        self.log_tc("ℹ️ Nemáš rezervované žádné termíny.")
+                except Exception as e:
+                    self.log_tc("ℹ️ Žádné rezervované termíny nenalezeny.")
+                    
+        except Exception as e:
+            self.log_uis(f"CHYBA: {e}")
+            self.log_tc(f"CHYBA: {e}")
+        finally:
+            self.log_uis("🏁 Hotovo.")
+            self.log_tc("🏁 Hotovo.")
+            time.sleep(2)
+            try: driver.quit()
+            except: pass
+            
+            # Po dokončení načítání ulož výsledky, aby tam byly i po restartu
+            self.root.after(0, self.save_results)
 
 if __name__ == "__main__":
     root = tk.Tk()
