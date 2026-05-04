@@ -100,7 +100,7 @@ class LauncherApp:
         btn_enrolled = ttk.Button(root, text="📋 Zapsané termíny (Přehled)", command=self.open_enrolled)
         btn_enrolled.pack(fill=tk.X, padx=50, pady=10)
         
-        tk.Label(root, text="v2.12 Dashboard Perfection", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
+        tk.Label(root, text="v2.13 Ultimate Booking Fix", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
         
         btn_coffee = tk.Button(root, text="☕ Podpořit autora", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
         btn_coffee.pack(side=tk.BOTTOM, pady=10)
@@ -934,12 +934,14 @@ class TCSniperApp:
 
     def _check_and_book_times(self, driver, time_links, t1, t2):
         """Pomocná metoda pro kontrolu časů a rezervaci"""
+        found_any_time = False
         for a in time_links:
             if not self.is_running: break
             try:
                 # Použijeme textContent místo .text, zabrání to problému s "neviditelným" textem
                 txt = a.get_attribute("textContent").strip()
                 if " - " in txt:
+                    found_any_time = True
                     ct_str = txt.split(" - ")[0].strip()
                     ct = datetime.strptime(ct_str, "%H:%M").time()
                     if t1 <= ct <= t2:
@@ -948,16 +950,18 @@ class TCSniperApp:
                         if self.chk_book.get():
                             self.log("🖱️ Odesílám požadavek na rezervaci...")
                             
-                            # OPRAVA 1: Přepíšeme JS alerty (proti zásekům) a použijeme čistý klik
-                            driver.execute_script("""
-                                window.confirm = function() { return true; };
-                                window.alert = function() { return true; };
-                                if(typeof confirmTC !== 'undefined') { window.confirmTC = function() { return true; }; }
-                            """)
-                            time.sleep(0.2)
-                            
-                            # Klikneme přímo na odkaz
-                            driver.execute_script("arguments[0].click();", a)
+                            # OPRAVA: Přejdeme bezpečně na odkaz
+                            href = a.get_attribute("href")
+                            if href and not href.startswith("javascript"):
+                                driver.get(href)
+                            else:
+                                driver.execute_script("""
+                                    window.confirm = function() { return true; };
+                                    window.alert = function() { return true; };
+                                    if(typeof confirmTC !== 'undefined') { window.confirmTC = function() { return true; }; }
+                                """)
+                                time.sleep(0.2)
+                                driver.execute_script("arguments[0].click();", a)
                             
                             # OPRAVA 2: Pokud Moodle hodí potvrzovací obrazovku ("Pokračovat"), odklikneme ji
                             time.sleep(2.5)
@@ -977,6 +981,9 @@ class TCSniperApp:
                         return True
             except Exception as e: 
                 pass
+                
+        if found_any_time:
+            self.log(f"❌ Nalezené časy nevyhovují filtru ({t1.strftime('%H:%M')} - {t2.strftime('%H:%M')}).")
         return False
 
     def init_driver(self):
@@ -1125,10 +1132,13 @@ class TCSniperApp:
                                 if self._matches_date(d, href_date, txt):
                                     self.log(f"📅 Nalezen volný den: {txt[:10]}...! Otevírám detail...")
                                     
-                                    # Použijeme bezpečný JS klik pro rozkliknutí dne
-                                    driver.execute_script("arguments[0].click();", link)
+                                    # OPRAVA: Přejdeme čistě na odkaz, aby to vždy počkalo na načtení stránky
+                                    if href and not href.startswith("javascript"):
+                                        driver.get(href)
+                                    else:
+                                        driver.execute_script("arguments[0].click();", link)
+                                        time.sleep(2)
                                         
-                                    time.sleep(1.5)
                                     day_clicked = True
                                     break
                             if day_clicked: break
@@ -1136,10 +1146,10 @@ class TCSniperApp:
                         # Pokud se překlikl na den, ihned po načtení stránky načte časy a zkusí je vzít
                         if day_clicked and self.is_running:
                             try:
-                                WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.CSS_SELECTOR, "td.alert.alert-success")))
+                                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "td.alert.alert-success")))
                             except: pass
                             
-                            cells_new = driver.find_elements(By.CSS_SELECTOR, f"div#{target_div_id} td.alert.alert-success") if target_div_id else driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+                            cells_new = driver.find_elements(By.CSS_SELECTOR, f"div#{target_div_id} td.alert.alert-success") if target_div_id else []
                             
                             # Fallback pro případ, že div už na detailní stránce neexistuje
                             if not cells_new:
@@ -1152,8 +1162,11 @@ class TCSniperApp:
                                     if l and "rezervovat" in l[0].get_attribute("textContent").lower():
                                         time_links_new.append(l[0])
                                 except: pass
+                                
                             if time_links_new:
                                 self._check_and_book_times(driver, time_links_new, t1, t2)
+                            else:
+                                self.log("⚠️ Na detailu dne nevidím žádné časy k rezervaci.")
                                 
                 except Exception as e:
                     self.log(f"Chyba cyklu: {e}")
