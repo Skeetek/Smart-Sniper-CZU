@@ -100,7 +100,7 @@ class LauncherApp:
         btn_enrolled = ttk.Button(root, text="📋 Zapsané termíny (Přehled)", command=self.open_enrolled)
         btn_enrolled.pack(fill=tk.X, padx=50, pady=10)
         
-        tk.Label(root, text="v2.18 Final Boss Defeated", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
+        tk.Label(root, text="v2.20 Update Master", font=("Segoe UI", 8), bg=COLOR_BG, fg="gray").pack(side=tk.BOTTOM, pady=5)
         
         btn_coffee = tk.Button(root, text="☕ Podpořit autora", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=lambda: webbrowser.open(COFFEE_URL))
         btn_coffee.pack(side=tk.BOTTOM, pady=10)
@@ -876,7 +876,7 @@ class TCSniperApp:
         self.e_t2.insert(0, self.saved_data.get("tc_t2", "19:00"))
 
         self.chk_book = tk.BooleanVar(value=True)
-        tk.Checkbutton(lbl, text="Zarezervovat", variable=self.chk_book, bg=COLOR_BG, fg=COLOR_TEXT, selectcolor=COLOR_BG, activebackground=COLOR_BG, activeforeground=COLOR_TEXT).grid(row=6, columnspan=2, pady=5)
+        tk.Checkbutton(lbl, text="Zarezervovat / Změnit", variable=self.chk_book, bg=COLOR_BG, fg=COLOR_TEXT, selectcolor=COLOR_BG, activebackground=COLOR_BG, activeforeground=COLOR_TEXT).grid(row=6, columnspan=2, pady=5)
 
         self.btn_run = tk.Button(root, text="START", bg=COLOR_BTN_START, fg="white", command=self.run)
         self.btn_run.pack(fill=tk.X, padx=10)
@@ -938,7 +938,6 @@ class TCSniperApp:
         for a in time_links:
             if not self.is_running: break
             try:
-                # Použijeme textContent místo .text, zabrání to problému s "neviditelným" textem
                 txt = a.get_attribute("textContent").strip()
                 if " - " in txt:
                     found_any_time = True
@@ -948,9 +947,9 @@ class TCSniperApp:
                         self.log(f"✅ Čas {ct_str} vyhovuje!")
                         winsound.Beep(1000, 500)
                         if self.chk_book.get():
-                            self.log("🖱️ Odesílám požadavek na rezervaci...")
+                            self.log("🖱️ Odesílám požadavek na zapsání...")
                             
-                            # OPRAVA: Přejdeme bezpečně na odkaz
+                            # Přejdeme bezpečně na odkaz nebo klikneme na tlačítko
                             href = a.get_attribute("href")
                             if href and not href.startswith("javascript"):
                                 driver.get(href)
@@ -963,7 +962,7 @@ class TCSniperApp:
                                 time.sleep(0.2)
                                 driver.execute_script("arguments[0].click();", a)
                             
-                            # OPRAVA 2: Pokud Moodle hodí potvrzovací obrazovku ("Pokračovat"), odklikneme ji
+                            # Pokud Moodle hodí potvrzovací obrazovku ("Pokračovat", "Uložit"), odklikneme ji
                             time.sleep(2.5)
                             try:
                                 confirm_btns = driver.find_elements(By.XPATH, "//input[@type='submit' or @type='button'] | //button")
@@ -976,7 +975,7 @@ class TCSniperApp:
                                         break
                             except: pass
                                 
-                            self.log("🎉 Hotovo! Rezervováno.")
+                            self.log("🎉 Hotovo! Tvá akce byla dokončena.")
                             self.is_running = False
                         return True
             except Exception as e: 
@@ -1009,7 +1008,6 @@ class TCSniperApp:
         days_raw = self.e_days.get().split(",")
         days = [d.strip() for d in days_raw if d.strip()]
         
-        # Ochrana proti špatně zadanému času (aby to nespadlo potichu)
         try:
             t1 = datetime.strptime(self.e_t1.get().strip(), "%H:%M").time()
             t2 = datetime.strptime(self.e_t2.get().strip(), "%H:%M").time()
@@ -1040,14 +1038,22 @@ class TCSniperApp:
             
             self.log("⏳ Čekám na tvé přihlášení...")
             
-            # Chytré čekání: už nečekáme fixně 90s, jakmile projde login, jde se hned dál
             for _ in range(90):
                 if not self.is_running: return
-                # Odstraněn driver.get(url), aby tě to nerušilo při psaní hesla
                 curr_url = driver.current_url.lower()
                 if "login" not in curr_url and "oauth" not in curr_url and "saml" not in curr_url:
                     break
                 time.sleep(2)
+                
+            # Pokud na dané stránce už na něco jsme, občas je potřeba nejdřív uvolnit režim úprav
+            try:
+                driver.get(url)
+                change_btn = driver.find_elements(By.XPATH, "//a[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'změnit termín rezervace')] | //button[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'změnit termín rezervace')] | //span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'změnit termín rezervace')]")
+                if change_btn:
+                    self.log("🔄 Detekován již rezervovaný termín! Rozbaluji menu pro změnu...")
+                    driver.execute_script("arguments[0].click();", change_btn[0])
+                    time.sleep(1)
+            except: pass
                 
             self.log("🚀 Spouštím smyčku hledání...")
             
@@ -1066,10 +1072,10 @@ class TCSniperApp:
                         
                     if not self.is_running: break
                     
-                    # 1. Zkusit rozbalit všechny kalendáře, které jsou zavřené (jistota, že jsou vidět)
+                    # 1. Občas je u zapsaného termínu třeba znovu kliknout na tlačítko Změnit termín rezervace
                     try:
-                        btns = driver.find_elements(By.XPATH, "//span[@data-toggle='collapse']")
-                        for btn in btns:
+                        change_btns = driver.find_elements(By.XPATH, "//span[@data-toggle='collapse']")
+                        for btn in change_btns:
                             if btn.get_attribute("aria-expanded") == "false":
                                 driver.execute_script("arguments[0].click();", btn)
                         time.sleep(0.3)
@@ -1077,16 +1083,17 @@ class TCSniperApp:
                     
                     # 2. Zkusíme rovnou najít časy k rezervaci kdekoliv na stránce (ignorujeme div ID a tabulky)
                     time_links_found = []
-                    # OPRAVA: Moodle střídá odkazy <a> a tlačítka <button>. Hledáme obojí!
+                    # OPRAVA: Moodle používá pro nové rezervace "rezervovat" a pro změnu rezervace "změnit". Hledáme obojí na <a> i <button>.
                     for lnk in driver.find_elements(By.XPATH, "//a | //button"):
                         try:
                             txt = lnk.get_attribute("textContent").strip().lower()
-                            if "rezervovat" in txt:
-                                time_links_found.append(lnk)
+                            if "rezervovat" in txt or "změnit" in txt:
+                                # Ujistíme se, že to není to hlavní menu tlačítko (Změnit termín rezervace), ale fakt už ten malý časový slot v zelené tabulce
+                                if " - " in txt and len(txt) < 30: 
+                                    time_links_found.append(lnk)
                         except: pass
                         
                     if time_links_found:
-                        # Pokud program rovnou vidí časové bloky, prozkoumá je
                         booked = self._check_and_book_times(driver, time_links_found, t1, t2)
                         if booked: break
                     
@@ -1095,7 +1102,6 @@ class TCSniperApp:
                     target_div_id = None
                     
                     if tc_filter:
-                        # Pokusíme se najít ID kontejneru pro náš konkrétní test
                         h3_elements = driver.find_elements(By.TAG_NAME, "h3")
                         for h3 in h3_elements:
                             if tc_filter in h3.text.lower():
@@ -1107,49 +1113,26 @@ class TCSniperApp:
                                         break
                                 except: pass
                         
-                        # Pokud nenašel přes tag H3, zkusíme najít alespoň text
-                        if not target_div_id:
-                            for h in driver.find_elements(By.XPATH, f"//*[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{tc_filter}')]"):
-                                try:
-                                    parent = h.find_element(By.XPATH, "./..")
-                                    btn = parent.find_element(By.XPATH, ".//span[@data-toggle='collapse']")
-                                    target_div_id = btn.get_attribute("data-target").replace("#", "")
-                                    if target_div_id: break
-                                except: pass
-
                         if target_div_id:
-                            try:
-                                target_container = driver.find_element(By.ID, target_div_id)
-                            except: pass
-                                
-                        if target_container == driver:
-                            if loop_count == 1: self.log(f"⚠️ Nenašel jsem přesný blok testu pro '{tc_filter}', hledám všude...")
-                            
-                    # 3. Hledáme časy a dny jen v target_containeru (aby se nám nepletly jiné testy z téže stránky)
-                    time_links_found = []
-                    for lnk in target_container.find_elements(By.TAG_NAME, "a"):
-                        txt = (lnk.get_attribute("textContent") or "").strip().lower()
-                        if "rezervovat" in txt:
-                            time_links_found.append(lnk)
-                            
-                    if time_links_found:
-                        booked = self._check_and_book_times(driver, time_links_found, t1, t2)
-                        if booked: break
+                            cells = driver.find_elements(By.CSS_SELECTOR, f"div#{target_div_id} td.alert.alert-success")
+                        else:
+                            if loop_count == 1: self.log(f"⚠️ Test s názvem '{tc_filter}' nenalezen, hledám ve všech...")
+                            cells = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
+                    else:
+                        cells = driver.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
                     
-                    # 4. Časy nejsou, hledáme volné dny (buňky s class alert-success) uvnitř našeho testu
-                    cells = target_container.find_elements(By.CSS_SELECTOR, "td.alert.alert-success")
                     day_clicked = False
                     
+                    # Rozdělíme nalezené volné buňky na dny v kalendáři
                     for cell in cells:
-                        if day_clicked or not self.is_running: break
                         try:
                             links = cell.find_elements(By.TAG_NAME, "a")
                             if not links: continue
                             link = links[0]
-                            txt = (link.get_attribute("textContent") or "").strip()
+                            txt = link.get_attribute("textContent").strip()
                             
-                            # Ujistíme se, že to fakt není čas (pojistka)
-                            if "rezervovat" not in txt.lower():
+                            # Ujistíme se, že to není časová buňka z jiného nezachyceného testu
+                            if "rezervovat" not in txt.lower() and "změnit" not in txt.lower():
                                 href = link.get_attribute("href") or ""
                                 date_match = re.search(r"day=(\d{4}-\d{2}-\d{2})", href)
                                 href_date = date_match.group(1) if date_match else None
@@ -1158,14 +1141,18 @@ class TCSniperApp:
                                     if self._matches_date(d, href_date, txt):
                                         self.log(f"📅 Nalezen volný den: {txt[:10]}...! Otevírám detail...")
                                         
-                                        # Nativní JS klik (simuluje uživatele)
-                                        driver.execute_script("arguments[0].click();", link)
-                                        
+                                        # Přejdeme na odkaz detailu dne
+                                        if href and not href.startswith("javascript"):
+                                            driver.get(href)
+                                        else:
+                                            driver.execute_script("arguments[0].click();", link)
+                                            
                                         day_clicked = True
                                         break
                         except: pass
+                        if day_clicked: break
                             
-                    # 5. Pokud program klikl na den, počká na reload a znovu se zaměří na svůj test
+                    # Pokud se překlikl na den, počkáme, až se stránka prokazatelně načte s časy!
                     if day_clicked and self.is_running:
                         self.log("⏳ Čekám na načtení detailu...")
                         time.sleep(2) # Bezpečnější čekání na celkový reload Moodle
@@ -1180,14 +1167,15 @@ class TCSniperApp:
                         except: pass
                         
                         time_links_new = []
-                        # Čekáme, dokud se neobjeví slovo "rezervovat" na ODKAZU NEBO TLAČÍTKU
+                        # Čekáme, dokud se neobjeví slovo "rezervovat" NEBO "změnit"
                         for _ in range(8):
                             if not self.is_running: break
                             
                             time_links_new = []
                             for lnk in driver.find_elements(By.XPATH, "//a | //button"):
                                 try:
-                                    if "rezervovat" in (lnk.get_attribute("textContent") or "").lower():
+                                    txt_lower = (lnk.get_attribute("textContent") or "").lower()
+                                    if ("rezervovat" in txt_lower or "změnit" in txt_lower) and " - " in txt_lower and len(txt_lower) < 30:
                                         time_links_new.append(lnk)
                                 except: pass
                             
@@ -1199,7 +1187,7 @@ class TCSniperApp:
                             booked = self._check_and_book_times(driver, time_links_new, t1, t2)
                             if booked: break
                         else:
-                            self.log("⚠️ Na detailu dne nevidím žádné časy k rezervaci.")
+                            self.log("⚠️ Na detailu dne nevidím žádné časy k rezervaci/změně.")
                                 
                 except Exception as e:
                     self.log(f"Chyba cyklu: {e}")
